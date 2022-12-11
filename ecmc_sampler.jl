@@ -1,3 +1,39 @@
+# ndims = 16
+# nsamples = 20
+# nchains = 4
+# samples = [ [rand(ndims) for j in 1:nsamples] for i in 1:nchains]
+
+# size(samples)
+
+# target = posterior
+# density_notrafo = convert(AbstractMeasureOrDensity, target)
+# density, trafo = transform_and_unshape(algorithm.trafo, density_notrafo)
+
+# bat_samples = convert_to_BAT_samples(mysamples, density)
+# bat_samples[1]
+# length(mysamples[1])
+
+function  convert_to_BAT_samples(samples, density)
+    new_samples = []
+
+    nchains = length(samples)
+
+    for c in 1:nchains
+        n_samples = length(samples[c])
+        sample_id = fill(BAT.MCMCSampleID(c, 0, 0, 0), n_samples)
+
+        logvals = map(logdensityof(density), samples[c])
+        weights = ones(n_samples)
+
+        dsv = DensitySampleVector(samples[c], logvals,  weight = weights, info = sample_id)
+        push!(new_samples, dsv)
+    end
+
+    return reduce(vcat, new_samples)
+end 
+
+
+#TODO: bat_sample(ecmc_tuner_states)
 function bat_sample_impl(
     rng::AbstractRNG,
     target::AnyMeasureOrDensity,
@@ -6,20 +42,47 @@ function bat_sample_impl(
     density_notrafo = convert(AbstractMeasureOrDensity, target)
     density, trafo = transform_and_unshape(algorithm.trafo, density_notrafo)
     shape = varshape(density)
+   
+    tuning_samples, ecmc_tuning_states = _ecmc_multichain_tuning(algorithm.tuning, density, algorithm)
+    ecmc_states = ECMCState(ecmc_tuning_states, algorithm)
 
-    tuning_samples, ecmc_tuning_state, tuned_algorithm = _ecmc_tuning(algorithm.tuning, density, algorithm)
-    ecmc_state = ECMCState(ecmc_tuning_state, tuned_algorithm)
-    samples, ecmc_state = _ecmc_sample(density, tuned_algorithm, ecmc_state = ecmc_state)
+    samples, ecmc_state = _ecmc_multichain_sample(density, algorithm, ecmc_states = ecmc_states)
 
-    logvals = map(logdensityof(density), samples)
-    weights = ones(length(samples))
+    #samples = vec(samples) #TODO: concetenate according to chain id
+    #samples = reduce(vcat, samples)
+    #logvals = map(logdensityof(density), samples)
+    #weights = ones(length(samples))
+    #samples_trafo = shape.(DensitySampleVector(samples, logvals, weight = weights))
 
-    samples_trafo = shape.(DensitySampleVector(samples, logvals, weight = weights))
+    samples_trafo = shape.(convert_to_BAT_samples(samples, density))
     samples_notrafo = inverse(trafo).(samples_trafo)
 
-    return (result = samples_notrafo, result_trafo = samples_trafo, trafo = trafo, ecmc_state=ecmc_state, ecmc_tuning_state=ecmc_tuning_state)
+    vt = BAT.bat_convergence(samples_trafo, GelmanRubinConvergence()).result
+    converged = convert(Bool, vt)
+    success_str = converged ? "have" : "have *not*"
+    @info "Chains $success_str converged, max(R^2) = $(vt.value), threshold = $(vt.threshold)"
+
+    return (result = samples_notrafo, result_trafo = samples_trafo, trafo = trafo, ecmc_state=ecmc_states, ecmc_tuning_state=ecmc_tuning_states)
 end
 
+
+function _ecmc_multichain_tuning(
+    tuner::ECMCTuner,
+    density::AbstractMeasureOrDensity,
+    algorithm::ECMCSampler;
+    ecmc_tuner_states::Vector{ECMCTunerState} = ECMCTunerState(density, algorithm) # TODO
+)
+    tuning_samples = [] #TODO: type, don't push
+    
+    #p = Progress(algorithm.nchains)
+    Threads.@threads for c in 1:algorithm.nchains
+        tuning_samples_per_chain, ecmc_tuner_state = _ecmc_tuning(tuner, density, algorithm, ecmc_tuner_state=ecmc_tuner_states[c], chainid=c) 
+        push!(tuning_samples, tuning_samples_per_chain)
+        #next!(p)
+    end
+
+    tuning_samples, ecmc_tuner_states
+end
 
 
 function _ecmc_tuning(
@@ -27,35 +90,29 @@ function _ecmc_tuning(
     density::AbstractMeasureOrDensity,
     algorithm::ECMCSampler;
     ecmc_tuner_state::ECMCTunerState = ECMCTunerState(density, algorithm), #TODO allow to pass ECMCTunerState for multiple cycles
+    chainid::Int64 = 0,
 )
-    T = typeof(ecmc_tuner_state.C)
-    tuning_samples = T[] 
-
-    # TODO: needed?
-    sizehint!(ecmc_tuner_state.acc_C, algorithm.chain_length * algorithm.nsamples)
-    sizehint!(ecmc_tuner_state.delta_arr, algorithm.chain_length * algorithm.nsamples)
-    sizehint!(ecmc_tuner_state.mfps_arr, algorithm.chain_length * algorithm.nsamples)
-
     tuning_converged = false
-    tuned_algorithm = algorithm
  
-    @showprogress 1 "MFPS tuning" for i in 1:tuner.max_n_steps
+    tuning_samples = [] #TODO
+    @showprogress 1 "MFPS tuning for chainid $chainid" for i in 1:tuner.max_n_steps
         push!(tuning_samples, _run_ecmc(density, algorithm, ecmc_tuner_state))
-        tuning_converged, tuned_algorithm = check_tuning_convergence(algorithm.tuning.tuning_convergence_check, algorithm, ecmc_tuner_state)
+        tuning_converged = check_tuning_convergence(algorithm.tuning.tuning_convergence_check, algorithm, ecmc_tuner_state)
         
         tuning_converged ? break : nothing
-    end 
-
+    end
+  
     has_converged_str = tuning_converged ? " " : " has *not* "
-    @info "MFPS tuning" * has_converged_str * "converged after $(ecmc_tuner_state.n_steps) steps. New step_amplitude = $(tuned_algorithm.step_amplitude)"
+    @info "MFPS tuning for chainid $chainid" * has_converged_str * "converged after $(ecmc_tuner_state.n_steps) steps. New step_amplitude = $(ecmc_tuner_state.tuned_delta)"
+    
+    #mfp = ecmc_tuner_state.mfp/(algorithm.chain_length*algorithm.nsamples)
+    #mfps = ecmc_tuner_state.mfps/(algorithm.chain_length*algorithm.nsamples)
+    #n_acc = ecmc_tuner_state.n_acc / (algorithm.chain_length*algorithm.nsamples)
+    #n_acc_lifts = ecmc_tuner_state.n_acc_lifts / ecmc_tuner_state.n_lifts
 
-    mfp = ecmc_tuner_state.mfp/(algorithm.chain_length*algorithm.nsamples)
-    mfps = ecmc_tuner_state.mfps/(algorithm.chain_length*algorithm.nsamples)
-    n_acc = ecmc_tuner_state.n_acc / (algorithm.chain_length*algorithm.nsamples)
-    n_acc_lifts = ecmc_tuner_state.n_acc_lifts / ecmc_tuner_state.n_lifts
-
-    return tuning_samples, ecmc_tuner_state, tuned_algorithm
+    return tuning_samples, ecmc_tuner_state
 end
+
 
 
 function _ecmc_tuning(
@@ -63,36 +120,45 @@ function _ecmc_tuning(
     density::AbstractMeasureOrDensity,
     algorithm::ECMCSampler;
     ecmc_tuner_state::ECMCTunerState = ECMCTunerState(density, algorithm), #TODO allow to pass ECMCTunerState for multiple cycles
+    chainid::Int64 = 0,
 )
     T = typeof(ecmc_tuner_state.C)
-    tuning_samples = T[] 
-    @info "No ECMC tuning"
-
-    return tuning_samples, ecmc_tuner_state, algorithm
+    tuning_samples =Array{T}(undef,  (algorithm.nchains, algorithm.nsamples)) #TODO: unknown size != nsamples
+    @info "No ECMC tuning for chain $chainid"
+    
+    return tuning_samples, ecmc_tuner_state
 end
 
+function _ecmc_multichain_sample(
+    density::AbstractMeasureOrDensity,
+    algorithm::ECMCSampler;
+    ecmc_states::Vector{ECMCState} = [ECMCState(density, algorithm) for i in 1:algorithm.nchains] # TODO
+)
+    samples = [] #TODO: type, don't push
+    Threads.@threads for c in 1:algorithm.nchains
+        samples_per_chain = _ecmc_sample(density, algorithm, ecmc_state=ecmc_states[c], chainid=c) 
+        push!(samples, samples_per_chain)
+    end
+
+    samples, ecmc_states
+end
 
 function _ecmc_sample(
     density::AbstractMeasureOrDensity,
     algorithm::ECMCSampler;
     ecmc_state::ECMCState = ECMCState(density, algorithm),
-)
-    initial_sample = ecmc_state.C
-    T = typeof(initial_sample)
+    chainid::Int64 = 0, 
+) 
+    T = typeof(ecmc_state.C)
     samples = Array{T}(undef, algorithm.nsamples)
    
-    @showprogress 1 "Run ECMC sampling" for i in 1:algorithm.nsamples
+    @showprogress 1 "Run ECMC sampling for chain $chainid" for i in 1:algorithm.nsamples
         samples[i] = _run_ecmc(density, algorithm, ecmc_state)
     end
-    
-    total_steps = algorithm.chain_length*algorithm.nsamples
-    mfp = ecmc_state.mfp / total_steps
-    mfps = ecmc_state.mfps / total_steps
-    n_acc = ecmc_state.n_acc / total_steps
-    n_acc_lifts = ecmc_state.n_acc_lifts / ecmc_state.n_lifts
 
-    return samples, ecmc_state
+    return samples
 end
+
 
 
 
@@ -134,7 +200,7 @@ function _run_ecmc(
         if remaining_jumps_before_refresh <= 0 
             remaining_jumps_before_refresh = algorithm.remaining_jumps_before_refresh
             lift_vector = refresh_lift_vector(D)
-            delta = refresh_delta(ecmc_state, algorithm.step_amplitude, algorithm.step_var)
+            delta = refresh_delta(ecmc_state)
         end
     end
 
@@ -182,11 +248,13 @@ function tune_delta(tuning::MFPSTuner, delta::Float64, ecmc_state::ECMCTunerStat
 end 
 
 
-function refresh_delta(ecmc_state::ECMCTunerState, delta, step_var) 
-    return delta
+function refresh_delta(ecmc_state::ECMCTunerState) 
+    return ecmc_state.delta
 end
 
-function refresh_delta(ecmc_state::ECMCState, step_amplitude, step_var)
+function refresh_delta(ecmc_state::ECMCState)
+    step_amplitude = ecmc_state.step_amplitude
+    step_var = ecmc_state.step_var
     #return rand(Normal(step_amplitude, step_var*step_amplitude))
     u = rand(Uniform(1-step_var, 1+step_var))
     return u * step_amplitude
@@ -238,16 +306,18 @@ function check_tuning_convergence(
     variance_is_low_enough = std(acc_C[end-N+1:end]) < tuning_convergence_check.variance
 
     mean_delta = mean(ecmc_tuner_state.delta_arr[end-N+1:end])
-    tuned_algorithm = reconstruct(algorithm, step_amplitude=mean_delta)
+    #tuned_algorithm = reconstruct(algorithm, step_amplitude=mean_delta)
+
+    ecmc_tuner_state.tuned_delta = mean_delta
 
     if mean_has_converged & variance_is_low_enough
-        @show mean_delta
-        @show abs(mean_acc_C - target_acc) / target_acc
-        @show std(acc_C[end-N+1:end])
+        #@show mean_delta
+        #@show abs(mean_acc_C - target_acc) / target_acc
+        #@show std(acc_C[end-N+1:end])
 
-        return true, tuned_algorithm
+        return true#, tuned_algorithm
     end 
 
-    return false, tuned_algorithm
+    return false#, tuned_algorithm
 end
 

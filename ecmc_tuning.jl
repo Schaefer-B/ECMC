@@ -23,7 +23,7 @@ export MFPSTuner
 # For MFPS tuning: criterion for convergence of stepsize tuning
 
 @with_kw struct AcceptanceRatioConvergence <: ECMCTuningConvergenceCheck
-    target_acc::Float64 = 0.9 
+    target_acc::Float64 = 0.9 #TODO
     Npercent::Float64 = 0.3 # percentage of steps to account for in acceptance
     variance::Float64 = 0.001
     rel_dif_mean::Float64 = 0.01 

@@ -6,6 +6,7 @@ using Distributions
 using Random
 using ForwardDiff
 using Plots
+ENV["JULIA_DEBUG"] = "BAT"
 
 include("ecmc.jl")
 
@@ -192,7 +193,7 @@ using Plots
 
 include("ecmc.jl")
 
-D = 4
+D = 16
 μ = fill(0.0, D)
 σ = collect(range(1, 10, D))
 truth = rand(MvNormal(μ, σ), Int(1e6))
@@ -216,8 +217,9 @@ logdensityof(posterior, rand(prior))
 
 algorithm = ECMCSampler(
     trafo = PriorToUniform(),
-    nsamples=10^5,
+    nsamples=10^2,
     nburnin = 0,
+    nchains = 1,
     chain_length=5, 
     remaining_jumps_before_refresh=50,
     step_amplitude=0.04,
@@ -228,8 +230,14 @@ algorithm = ECMCSampler(
 )
 
 
-sampling_result = bat_sample(posterior, algorithm)
+@profview sampling_result = bat_sample(posterior, algorithm)
 samples = sampling_result.result
+
+bat_convergence(samples, GelmanRubinConvergence()).result
+
+samples[end]
+mysamples = [unshaped.(samples).v[1+((n-1)*20):1+((n-1)*20)+20] for n in 1:4]
+
 
 
 p = plot(layout=(4,4), size=(1600, 1000))
@@ -238,3 +246,29 @@ for i in 1:D
     p = plot!(truth[i, :], subplot=i, lw=2, lc=:black, st=:stephist, normed=true)
 end 
 p
+
+
+
+
+nchains = 2
+nsamples = 5
+T = Vector{Float64}
+samples = Array{T}(undef, (nchains, nsamples))
+for i in 1:nchains 
+    for j in 1:nsamples 
+        samples[i, j] = rand(3)
+    end
+end
+samples
+
+vec(samples)
+reduce(vcat, samples)
+
+
+
+a = zeros(5)
+T = Vector{Vector{Float64}}
+
+b = Vector{T}([], 5)
+
+push!(b[1], zeros(5))
