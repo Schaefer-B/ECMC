@@ -1,62 +1,35 @@
-# ndims = 16
-# nsamples = 20
-# nchains = 4
-# samples = [ [rand(ndims) for j in 1:nsamples] for i in 1:nchains]
-
-# size(samples)
-
-# target = posterior
-# density_notrafo = convert(AbstractMeasureOrDensity, target)
-# density, trafo = transform_and_unshape(algorithm.trafo, density_notrafo)
-
-# bat_samples = convert_to_BAT_samples(mysamples, density)
-# bat_samples[1]
-# length(mysamples[1])
-
-function  convert_to_BAT_samples(samples, density)
-    new_samples = []
-
-    nchains = length(samples)
-
-    for c in 1:nchains
-        n_samples = length(samples[c])
-        sample_id = fill(BAT.MCMCSampleID(c, 0, 0, 0), n_samples)
-
-        logvals = map(logdensityof(density), samples[c])
-        weights = ones(n_samples)
-
-        dsv = DensitySampleVector(samples[c], logvals,  weight = weights, info = sample_id)
-        push!(new_samples, dsv)
-    end
-
-    return reduce(vcat, new_samples)
-end 
-
 
 #TODO: bat_sample(ecmc_tuner_states)
+# This is the top-level function called internally when running "bat_sample" with the ECMC sampler
 function bat_sample_impl(
     rng::AbstractRNG,
     target::AnyMeasureOrDensity,
     algorithm::ECMCSampler
 )
+    # transforming target distribution
     density_notrafo = convert(AbstractMeasureOrDensity, target)
     density, trafo = transform_and_unshape(algorithm.trafo, density_notrafo)
     shape = varshape(density)
    
+    # tuning the ECMC sampler
     tuning_samples, ecmc_tuning_states = _ecmc_multichain_tuning(algorithm.tuning, density, algorithm)
     ecmc_states = ECMCState(ecmc_tuning_states, algorithm)
 
+    # actually running the ECMC sampling 
     samples, ecmc_state = _ecmc_multichain_sample(density, algorithm, ecmc_states = ecmc_states)
 
+    # TODO
     #samples = vec(samples) #TODO: concetenate according to chain id
     #samples = reduce(vcat, samples)
     #logvals = map(logdensityof(density), samples)
     #weights = ones(length(samples))
     #samples_trafo = shape.(DensitySampleVector(samples, logvals, weight = weights))
 
+    # transforming samples back to the original space
     samples_trafo = shape.(convert_to_BAT_samples(samples, density))
     samples_notrafo = inverse(trafo).(samples_trafo)
 
+    # checking convergence of ECMC chains
     vt = BAT.bat_convergence(samples_trafo, GelmanRubinConvergence()).result
     converged = convert(Bool, vt)
     success_str = converged ? "have" : "have *not*"
@@ -66,6 +39,7 @@ function bat_sample_impl(
 end
 
 
+#----- Run Tuning ----------------------------------------
 function _ecmc_multichain_tuning(
     tuner::ECMCTuner,
     density::AbstractMeasureOrDensity,
@@ -114,7 +88,6 @@ function _ecmc_tuning(
 end
 
 
-
 function _ecmc_tuning(
     tuner::ECMCNoTuner,
     density::AbstractMeasureOrDensity,
@@ -129,6 +102,8 @@ function _ecmc_tuning(
     return tuning_samples, ecmc_tuner_state
 end
 
+
+#------ Run Sampling ------------------------------------------
 function _ecmc_multichain_sample(
     density::AbstractMeasureOrDensity,
     algorithm::ECMCSampler;
@@ -160,8 +135,7 @@ function _ecmc_sample(
 end
 
 
-
-
+# This is the actual ECMC algorithm
 function _run_ecmc(
     density::AbstractMeasureOrDensity,
     algorithm::ECMCSampler,
@@ -209,6 +183,8 @@ function _run_ecmc(
     return C
 end
 
+
+# the following updates are different for ECMCState & ECMCTunerStates:
 
 function update_ecmc_state_accept!(ecmc_state::ECMCState, delta)
     ecmc_state.mfp += delta
@@ -261,14 +237,13 @@ function refresh_delta(ecmc_state::ECMCState)
 end
 
 
-
 function refresh_lift_vector(D)
     v = rand(Normal(0., 1.), D)
     return normalize(v)
 end
 
 
-
+# "Converting" the posterior distribution to an energy and getting the gradien
 _energy_function(density::AbstractMeasureOrDensity, x) = -logdensityof(density, x)
 
 function _energy_gradient(density::AbstractMeasureOrDensity, x)
@@ -287,6 +262,28 @@ function _energy_difference(
 
     return (new_energy - old_energy)
 end
+
+
+#----- convert samples ----------------------------------------------
+function  convert_to_BAT_samples(samples, density)
+    new_samples = []
+
+    nchains = length(samples)
+
+    for c in 1:nchains
+        n_samples = length(samples[c])
+        sample_id = fill(BAT.MCMCSampleID(c, 0, 0, 0), n_samples)
+
+        logvals = map(logdensityof(density), samples[c])
+        weights = ones(n_samples)
+
+        dsv = DensitySampleVector(samples[c], logvals,  weight = weights, info = sample_id)
+        push!(new_samples, dsv)
+    end
+
+    return reduce(vcat, new_samples)
+end 
+
 
 
 #----- Check Tuning Convergence ----------------------------------------------------------

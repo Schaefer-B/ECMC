@@ -66,9 +66,10 @@ function adapt_delta(adaption_scheme::ManonAdaption, delta, ecmc_state, tuner::M
     return new_delta
 end
 
+
+
 struct GoogleAdaption <: ECMCStepSizeAdaptor end
 export GoogleAdaption
-
 
 # function adapt_delta(adaption_scheme::GoogleAdaption, delta, ecmc_state, tuner::MFPSTuner)
 #     # adapt delta according to paper
