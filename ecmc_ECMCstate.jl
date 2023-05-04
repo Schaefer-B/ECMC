@@ -18,34 +18,36 @@ end
 export ECMCSampler
 
 
-mutable struct ECMCState <: AbstractECMCState
-    C::Vector{Float64}
-    lift_vector::Vector{Float64}
-    delta::Float64  
-    step_amplitude::Float64
-    step_var::Float64                
-    remaining_jumps_before_refresh::Int64
-    n_steps::Int64
-    n_acc::Int64
-    n_lifts::Int64
-    n_acc_lifts::Int64
-    mfp::Float64
-    mfps::Int64
+@with_kw mutable struct ECMCState <: AbstractECMCState
+    C::Vector{Float64} = []
+    lift_vector::Vector{Float64} = []
+    delta::Float64 = 1.
+    step_amplitude::Float64 = 1.
+    step_var::Float64 = 1.
+    remaining_jumps_before_refresh::Int64 = 1
+    n_steps::Int64 = 0
+    n_acc::Int64 = 0
+    n_lifts::Int64 = 0
+    n_acc_lifts::Int64 = 0
+    mfp::Float64 = 0.
+    mfps::Int64 = 0
 end
 export ECMCState
+
 
 function ECMCState(density::AbstractMeasureOrDensity, algorithm::ECMCSampler)
     D = totalndof(density)
     initial_samples = [rand(BAT.getprior(density)) for i in 1:algorithm.nchains]
     lift_vectors = [refresh_lift_vector(D) for i in 1:algorithm.nchains]
-    
-    delta = algorithm.step_amplitude # for tuning only  #TODO important?
-    #delta = refresh_delta(algorithm.step_amplitude, algorithm.step_var)  #for sampling
 
-    jumps_before_refresh = algorithm.remaining_jumps_before_refresh
-
-    ecmc_states = [ECMCState(initial_samples[i], lift_vectors[i], delta, algorithm.step_amplitude, algorithm.step_var, jumps_before_refresh, 
-    0, 0, 0, 0, 0., 0,) for i in 1:algorithm.nchains]
+    ecmc_states = [ECMCState(
+        C = initial_samples[i], 
+        lift_vector = lift_vectors[i], 
+        delta = algorithm.step_amplitude, 
+        step_amplitude = algorithm.step_amplitude, 
+        step_var = algorithm.step_var, 
+        remaining_jumps_before_refresh = algorithm.remaining_jumps_before_refresh
+        ) for i in 1:algorithm.nchains]
 
     return ecmc_states
 end 
@@ -53,23 +55,24 @@ end
 
 
 # for tuning: includes additional arrays for mfps, delta, accepted C
-mutable struct ECMCTunerState <: AbstractECMCState
-    C::Vector{Float64}
-    lift_vector::Vector{Float64}
-    delta::Float64
-    tuned_delta::Float64                  
-    remaining_jumps_before_refresh::Int64
-    n_steps::Int64
-    n_acc::Int64
-    n_lifts::Int64
-    n_acc_lifts::Int64
-    mfp::Float64
-    mfps::Int64
-    mfps_arr::Vector{Int64}
-    delta_arr::Vector{Float64}
-    acc_C::Vector{Float64}
+@with_kw mutable struct ECMCTunerState <: AbstractECMCState
+    C::Vector{Float64} = []
+    lift_vector::Vector{Float64} = []
+    delta::Float64 = 1.
+    tuned_delta::Float64 = 1. 
+    remaining_jumps_before_refresh::Int64 = 1
+    n_steps::Int64 = 0
+    n_acc::Int64 = 0
+    n_lifts::Int64 = 0
+    n_acc_lifts::Int64 = 0
+    mfp::Float64 = 0.
+    mfps::Int64 = 0
+    delta_arr::Vector{Float64} = []
+    mfps_arr::Vector{Int64} = []
+    acc_C::Vector{Float64} = []
 end
 export ECMCTunerState
+
 
 #TODO: make function calling ECMCTunerState nchains times
 function ECMCTunerState(density::AbstractMeasureOrDensity, algorithm::ECMCSampler)
@@ -79,10 +82,15 @@ function ECMCTunerState(density::AbstractMeasureOrDensity, algorithm::ECMCSample
     lift_vectors = [refresh_lift_vector(D) for i in 1:algorithm.nchains]
     
     delta = algorithm.step_amplitude
-    jumps_before_refresh = algorithm.remaining_jumps_before_refresh
 
-    ecmc_tuner_states = [ECMCTunerState(initial_samples[i], lift_vectors[i], delta, delta, jumps_before_refresh, 
-    0, 0, 0, 0, 0., 0, [], [delta, ], [])  for i in 1:algorithm.nchains]
+    ecmc_tuner_states = [ECMCTunerState(
+        C = initial_samples[i], 
+        lift_vector = lift_vectors[i], 
+        delta = delta, 
+        tuned_delta = delta, 
+        remaining_jumps_before_refresh = algorithm.remaining_jumps_before_refresh, 
+        delta_arr = [delta, ]
+        )  for i in 1:algorithm.nchains]
 
     return ecmc_tuner_states
 end 
@@ -92,18 +100,26 @@ end
 # create ECMCState after tuning
 #TODO: nchains
 function ECMCState(ecmc_tuner_state::ECMCTunerState, algorithm::ECMCSampler)
-    C = ecmc_tuner_state.C
-    lift_vector = ecmc_tuner_state.lift_vector
-    delta = ecmc_tuner_state.tuned_delta
-    step_amplitude = ecmc_tuner_state.tuned_delta
-    jumps_before_refresh = algorithm.remaining_jumps_before_refresh
-    ECMCState(C, lift_vector, delta, step_amplitude, algorithm.step_var, jumps_before_refresh, 
-    0, 0, 0, 0, 0., 0,)
+    return ECMCState(
+        C = ecmc_tuner_state.C, 
+        lift_vector = ecmc_tuner_state.lift_vector, 
+        delta = ecmc_tuner_state.tuned_delta, 
+        step_amplitude = ecmc_tuner_state.tuned_delta, 
+        step_var = algorithm.step_var, 
+        remaining_jumps_before_refresh = algorithm.remaining_jumps_before_refresh
+        )
 end 
 
+
 function ECMCState(ecmc_tuner_states::Vector{ECMCTunerState}, algorithm::ECMCSampler)
-    return [ECMCState(e.C, e.lift_vector, e.tuned_delta, e.tuned_delta, algorithm.step_var, algorithm.remaining_jumps_before_refresh, 
-        0, 0, 0, 0, 0., 0,) for e in ecmc_tuner_states]
+    return [ECMCState(
+        C = e.C, 
+        lift_vector = e.lift_vector, 
+        delta = e.tuned_delta, 
+        step_amplitude = e.tuned_delta, 
+        step_var = algorithm.step_var, 
+        remaining_jumps_before_refresh = algorithm.remaining_jumps_before_refresh
+        ) for e in ecmc_tuner_states]
 end 
 
 

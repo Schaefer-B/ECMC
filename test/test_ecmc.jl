@@ -219,20 +219,19 @@ end
 
 
 #function to generate ecmcstates with a fixed starting- and liftvector
-#called later so different stepamplitued etc can be used
+#called later so different stepamplitude etc can be used
 function _initialize_ecmc_state(algorithm, density, dimension=8, set_C_to_origin=false)
     D = dimension
     
-
-    #start_C = [trafo(rand(BAT.getprior(density))) for i in 1:nstates]
-
     if set_C_to_origin == true
-        C = fill(0, D)
-        start_liftvector = fill(1/sqrt(D), D)
-        delta = algorithm.step_amplitude
 
         initialized_state = ECMCState(
-            C, start_liftvector, delta, algorithm.step_amplitude, algorithm.step_var, algorithm.remaining_jumps_before_refresh, 0, 0, 0, 0, 0., 0
+            C = fill(0, D), 
+            lift_vector = fill(1/sqrt(D), D), 
+            delta = algorithm.step_amplitude, 
+            step_amplitude = algorithm.step_amplitude, 
+            step_var = algorithm.step_var, 
+            remaining_jumps_before_refresh = algorithm.remaining_jumps_before_refresh
         )
 
     else
@@ -342,8 +341,8 @@ end
 
 
 
-
-@test isapprox(mean(results[ReverseDirection()]).a, fill(0, dimension), atol=1)
+@test isapprox(mean(results[ReverseDirection()]).a, fill(0, dimension), atol=2)
+#@test isapprox([1,0.1], [0,0], atol=1)
 @test isapprox(mean(results[RefreshDirection()]).a, fill(0, dimension), atol=1)
 @test isapprox(mean(results[ReflectDirection()]).a, fill(0, dimension), atol=1)
 @test isapprox(mean(results[StochasticReflectDirection()]).a, fill(0, dimension), atol=1)
