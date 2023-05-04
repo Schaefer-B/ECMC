@@ -122,6 +122,7 @@ function _change_direction(
     proposed_C::Vector{Float64},
     density::AbstractMeasureOrDensity
 )
+    current_lift_vector = lift_vector
     n_normal = normalize(_energy_gradient(density, C))
     D = length(C)
 
