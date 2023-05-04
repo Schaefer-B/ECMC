@@ -67,8 +67,8 @@ end
     n_acc_lifts::Int64 = 0
     mfp::Float64 = 0.
     mfps::Int64 = 0
-    delta_arr::Vector{Float64} = []
     mfps_arr::Vector{Int64} = []
+    delta_arr::Vector{Float64} = []
     acc_C::Vector{Float64} = []
 end
 export ECMCTunerState
