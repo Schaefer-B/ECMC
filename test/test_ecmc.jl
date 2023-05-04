@@ -182,7 +182,7 @@ update_direction = _change_direction(
 
 
 
-#-------Testing of _run_ecmc, _ecmc_sample, _ecmc_multichain_sample---------
+#-------Testing of _run_ecmc!, _ecmc_sample, _ecmc_multichain_sample---------
 
 #-------preparation for the following tests---------
 #using Random123
@@ -275,7 +275,7 @@ algorithms = [
 
 
 
-#------_run_ecmc Tests------
+#------_run_ecmc! Tests------
 
 run_ecmc_results = Dict()
 runs = 100
@@ -293,7 +293,7 @@ for algorithm in algorithms
     samples = []
     Random.seed!(42)
     for i in 1:runs
-        next_sample = [_run_ecmc(density, algorithm, ecmc_state)]
+        next_sample = [_run_ecmc!(ecmc_state, density, algorithm)]
         push!(samples, next_sample)
     end
     #println("samples = ", samples)

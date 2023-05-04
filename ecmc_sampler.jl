@@ -70,8 +70,8 @@ function _ecmc_tuning(
  
     tuning_samples = [] #TODO
     @showprogress 1 "MFPS tuning for chainid $chainid" for i in 1:tuner.max_n_steps
-        push!(tuning_samples, _run_ecmc(density, algorithm, ecmc_tuner_state))
-        tuning_converged = check_tuning_convergence(algorithm.tuning.tuning_convergence_check, algorithm, ecmc_tuner_state)
+        push!(tuning_samples, _run_ecmc!(ecmc_tuner_state, density, algorithm))
+        tuning_converged = check_tuning_convergence!(ecmc_tuner_state, algorithm.tuning.tuning_convergence_check)
         
         tuning_converged ? break : nothing
     end
@@ -128,7 +128,7 @@ function _ecmc_sample(
     samples = Array{T}(undef, algorithm.nsamples)
    
     @showprogress 1 "Run ECMC sampling for chain $chainid" for i in 1:algorithm.nsamples
-        samples[i] = _run_ecmc(density, algorithm, ecmc_state)
+        samples[i] = _run_ecmc!(ecmc_state, density, algorithm)
     end
 
     return samples
@@ -136,10 +136,10 @@ end
 
 
 # This is the actual ECMC algorithm
-function _run_ecmc(
+function _run_ecmc!(
+    ecmc_state::AbstractECMCState,
     density::AbstractMeasureOrDensity,
     algorithm::ECMCSampler,
-    ecmc_state::AbstractECMCState,
 )
     D = totalndof(density)
     @unpack C, lift_vector, delta, remaining_jumps_before_refresh = ecmc_state
@@ -287,10 +287,9 @@ end
 
 
 #----- Check Tuning Convergence ----------------------------------------------------------
-function check_tuning_convergence(
-    tuning_convergence_check::AcceptanceRatioConvergence, 
-    algorithm::ECMCSampler, 
-    ecmc_tuner_state::ECMCTunerState
+function check_tuning_convergence!(
+    ecmc_tuner_state::ECMCTunerState,
+    tuning_convergence_check::AcceptanceRatioConvergence,
 )
     target_acc = tuning_convergence_check.target_acc
     acc_C = ecmc_tuner_state.acc_C # TODO: make acc_C & delta_arr fixed-size (N) arrays that are updated in rolling fahsion
