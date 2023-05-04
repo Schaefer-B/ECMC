@@ -25,7 +25,7 @@ export MFPSTuner
 @with_kw struct AcceptanceRatioConvergence <: ECMCTuningConvergenceCheck
     target_acc::Float64 = 0.9 #TODO
     Npercent::Float64 = 0.3 # percentage of steps to account for in acceptance
-    variance::Float64 = 0.001
+    std::Float64 = 0.001
     rel_dif_mean::Float64 = 0.01 
 end
 
@@ -101,3 +101,33 @@ export GoogleAdaption
 
 
 
+#----- Check Tuning Convergence ----------------------------------------------------------
+function check_tuning_convergence!(
+    ecmc_tuner_state::ECMCTunerState,
+    tuning_convergence_check::AcceptanceRatioConvergence,
+)
+    target_acc = tuning_convergence_check.target_acc
+    acc_C = ecmc_tuner_state.acc_C # TODO: make acc_C & delta_arr fixed-size (N) arrays that are updated in rolling fahsion
+    
+    # NOTE: N is increasing with n_steps. Mean of growing array gets slow.
+    N = minimum([length(acc_C), Int(floor(tuning_convergence_check.Npercent * ecmc_tuner_state.n_steps))]) #user input
+    mean_acc_C = mean(acc_C[end-N+1:end])  
+
+    mean_has_converged = abs(mean_acc_C - target_acc) < tuning_convergence_check.rel_dif_mean * target_acc 
+    std_is_low_enough = std(acc_C[end-N+1:end]) < tuning_convergence_check.std
+
+    mean_delta = mean(ecmc_tuner_state.delta_arr[end-N+1:end])
+    #tuned_algorithm = reconstruct(algorithm, step_amplitude=mean_delta)
+
+    ecmc_tuner_state.tuned_delta = mean_delta
+
+    if mean_has_converged & std_is_low_enough
+        #@show mean_delta
+        #@show abs(mean_acc_C - target_acc) / target_acc
+        #@show std(acc_C[end-N+1:end])
+
+        return true#, tuned_algorithm
+    end 
+
+    return false#, tuned_algorithm
+end
