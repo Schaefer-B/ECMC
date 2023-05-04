@@ -9,7 +9,7 @@
     nchains::Int = 4
     chain_length::Int = 50
     step_amplitude::Float64 = 0.5
-    step_var::Float64 = 0.5
+    #step_var::Float64 = 0.5
     remaining_jumps_before_refresh::Int = 5
     direction_change::AbstractECMCDirection = ReverseDirection()
     tuning::ECMCTuner = MFPSTuner(target_mfps=5)
@@ -45,7 +45,7 @@ function ECMCState(density::AbstractMeasureOrDensity, algorithm::ECMCSampler)
         lift_vector = lift_vectors[i], 
         delta = algorithm.step_amplitude, 
         step_amplitude = algorithm.step_amplitude, 
-        step_var = algorithm.step_var, 
+        step_var = 0.1*algorithm.step_amplitude, 
         remaining_jumps_before_refresh = algorithm.remaining_jumps_before_refresh
         ) for i in 1:algorithm.nchains]
 
@@ -105,7 +105,7 @@ function ECMCState(ecmc_tuner_state::ECMCTunerState, algorithm::ECMCSampler)
         lift_vector = ecmc_tuner_state.lift_vector, 
         delta = ecmc_tuner_state.tuned_delta, 
         step_amplitude = ecmc_tuner_state.tuned_delta, 
-        step_var = algorithm.step_var, 
+        step_var = 0.1*ecmc_tuner_state.tuned_delta, 
         remaining_jumps_before_refresh = algorithm.remaining_jumps_before_refresh
         )
 end 
@@ -117,7 +117,7 @@ function ECMCState(ecmc_tuner_states::Vector{ECMCTunerState}, algorithm::ECMCSam
         lift_vector = e.lift_vector, 
         delta = e.tuned_delta, 
         step_amplitude = e.tuned_delta, 
-        step_var = algorithm.step_var, 
+        step_var = 0.1*e.tuned_delta, 
         remaining_jumps_before_refresh = algorithm.remaining_jumps_before_refresh
         ) for e in ecmc_tuner_states]
 end 

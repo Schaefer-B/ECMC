@@ -40,7 +40,7 @@ algorithm = ECMCSampler(
     remaining_jumps_before_refresh=50,
     step_amplitude=0.1,
     factorized = false,
-    step_var=0.2,
+    #step_var=0.2,
     direction_change = RefreshDirection(),
     tuning = MFPSTuner(),
 )
@@ -230,7 +230,7 @@ function _initialize_ecmc_state(algorithm, density, dimension=8, set_C_to_origin
             lift_vector = fill(1/sqrt(D), D), 
             delta = algorithm.step_amplitude, 
             step_amplitude = algorithm.step_amplitude, 
-            step_var = algorithm.step_var, 
+            step_var = 0.25*algorithm.step_amplitude, 
             remaining_jumps_before_refresh = algorithm.remaining_jumps_before_refresh
         )
 
@@ -260,7 +260,7 @@ algorithms = [
         chain_length = 5, #jumps_before_sample
         remaining_jumps_before_refresh=50,
         step_amplitude = 0.04,
-        step_var = 0.01,
+        #step_var = 0.01,
         direction_change = algo,
         tuning = MFPSTuner(),
         factorized = false
