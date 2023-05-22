@@ -88,29 +88,59 @@ logdensityof(posterior, rand(prior))
 
 #for plotting
 function idontwannacalliteverytime(bucket=100)
+
+    #bucket_width = bucket
+    #k_max = Int(floor(length(tuning_state.acc_C)/bucket_width))
+    #for k in 1:k_max
+    #    for i in (1+(k-1)*bucket_width):(k*bucket_width)
+    #        acc = (tuning_state.acc_C[k*bucket_width]*k*bucket_width - tuning_state.acc_C[(1+(k-1)*bucket_width)]*(1+(k-1)*bucket_width))/(bucket_width-1)
+    #        push!(new_acc_C, acc)
+    #    end
+    #end
+
+    acc_C = tuning_state.acc_C
+    n_steps = tuning_state.n_steps
+    Npercent = 0.3
+    standard_deviation = 0.001
+    rel_dif_mean = 0.01 
+    
     new_acc_C = []
-    bucket_width = bucket
-    k_max = Int(floor(length(tuning_state.acc_C)/bucket_width))
-    for k in 1:k_max
-        for i in (1+(k-1)*bucket_width):(k*bucket_width)
-            acc = (tuning_state.acc_C[k*bucket_width]*k*bucket_width - tuning_state.acc_C[(1+(k-1)*bucket_width)]*(1+(k-1)*bucket_width))/(bucket_width-1)
-            push!(new_acc_C, acc)
-        end
+    acc_C_std = []
+    mean_delta = []
+    for step in 1:n_steps
+
+        N = Int(floor(Npercent * step))
+        mean_acc_C = (acc_C[step]*step - acc_C[step-N]*(step-N))/N
+        push!(new_acc_C, mean_acc_C)
+        push!(mean_delta, mean(tuning_state.delta_arr[step-N:step]))
+        push!(acc_C_std, std(acc_C[step-N:step]))
+
     end
+
+
 
 
     p1 = plot(title="MFPSTuner")
     plot!(new_acc_C, lw=2, label="Current ratio", ylabel="Acceptance ratio")
     target_acc = algorithm.tuning.target_mfps/(algorithm.tuning.target_mfps+1)
     plot!([target_acc], st=:hline, lw=2, label="Target")
+    plot!(ylims=(0.6, 1.))
 
-    p2 = plot(tuning_state.delta_arr[1:end], lw=2, label = "Current delta", xlabel="Steps", ylabel="Delta")
-    N = minimum([length(tuning_state.acc_C), Int(floor(0.3*tuning_state.n_steps))])
-    plot!([mean(tuning_state.delta_arr[end-N+1:end])], st=:hline, lw=2, label="Mean[N:end]")
 
-    p = plot(p1, p2, layout=(2,1) ,legend=true)
+    p2 = plot(tuning_state.delta_arr, lw=2, label = "Current delta", ylabel="Delta")
+    plot!([tuning_state.tuned_delta], st=:hline, lw=2, label="Tuned delta")
+    plot!(mean_delta, lw=2, lc=:black, label="Current mean delta")
+
+    p3 = plot(acc_C_std, lw=2, label = "Current std of acceptance ratio", ylabel="Standard deviation")
+    plot!(ylims=(0, 0.01))
+    plot!([standard_deviation], st=:hline, lw=2, label="Upper boundary")
+    #plot!((-1)*acc_C_std, lw=2, lc=blue)
+
+    plot!(xlabel="Steps")
+
+
+    p = plot(p1, p2, p3, layout=(3,1) ,legend=true)
 end
-
 
 
 include("../ecmc.jl")
@@ -126,7 +156,7 @@ algorithm = ECMCSampler(
     nchains = 1,
     chain_length=5, 
     remaining_jumps_before_refresh=50,
-    step_amplitude=10^-2,
+    step_amplitude=10^-1,
     factorized = false,
     #step_var=1.5*0.04,
     direction_change = RefreshDirection(),
@@ -141,11 +171,11 @@ tuning_state = sample.ecmc_tuning_state[1] # tuning state for chain 1
 
 
 #---------Ben Plot-----------
-idontwannacalliteverytime(240)
+idontwannacalliteverytime()
 
 tuning_state.tuned_delta
 length(tuning_state.delta_arr)
-std(tuning_state.delta_arr[end-Int(floor(tuning_state.n_steps*0.2)):end])/tuning_state.tuned_delta
+std(tuning_state.delta_arr[end-Int(floor(tuning_state.n_steps*0.3)):end])/tuning_state.tuned_delta
 
 
 png("MFPSTuner - google spike")
@@ -215,16 +245,3 @@ for i in 1:D
 end 
 p
 
-
-
-#-----------save plot--------------------
-#p = plot(layout=(2,1), size=(1600, 1000))
-
-#p = plot!(samples, i, subplot=i, legend=false)
-
-
-idontwannacalliteverytime(1000)
-
-tuning_state.tuned_delta
-
-png("MFPSTuner - test 1 mit gradient")
