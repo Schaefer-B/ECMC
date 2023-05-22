@@ -20,10 +20,10 @@ Holds user specified information and default starting parameters regarding the s
     nsamples::Int = 10^4
     nburnin::Int = Int(floor(0.1*nsamples)) # TODO ??
     nchains::Int = 4
-    chain_length::Int = 50 #remaining_jumps_before_sample
+    chain_length::Int = 5 #remaining_jumps_before_sample
     step_amplitude::Float64 = 0.5
     #step_var::Float64 = 0.5
-    remaining_jumps_before_refresh::Int = 5
+    remaining_jumps_before_refresh::Int = 50
     direction_change::AbstractECMCDirection = ReverseDirection()
     tuning::ECMCTuner = MFPSTuner(target_mfps=5)
     factorized = false #TODO
@@ -138,6 +138,10 @@ See also [`ECMCState`](@ref).
     mfps_arr::Vector{Int64} = []
     delta_arr::Vector{Float64} = []
     acc_C::Vector{Float64} = []
+    γ::Float64 = 0 # for google tuning
+    step_acc::Bool = 0 # for google tuning
+    #n_acc_arr::Vector{Int64} = [] # for google tuning but should be a modified acc_C
+    #reject_step_arr::Vector{Int64} = [] # for google tuning
 end
 export ECMCTunerState
 

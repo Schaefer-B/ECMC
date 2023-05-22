@@ -157,6 +157,7 @@ function _run_ecmc!(
         if u <= p_accept
             C = proposed_C
             update_ecmc_state_accept!(ecmc_state, delta)
+            delta = tune_delta(algorithm.tuning, delta, ecmc_state) # added because of google tuning
         else
             old_lift_vector = lift_vector
             lift_vector = _change_direction(algorithm.direction_change, C, delta, lift_vector, proposed_C, density)
@@ -198,14 +199,20 @@ function update_ecmc_state_accept!(ecmc_state::ECMCTunerState, delta)
     ecmc_state.mfps += 1 
     push!(ecmc_state.delta_arr, delta)
     push!(ecmc_state.acc_C, ecmc_state.n_acc/ecmc_state.n_steps)
+    ecmc_state.step_acc = 1 # for google tuning
+    #push!(ecmc_state.n_acc_arr, ecmc_state.n_acc) # for google tuning but acc_C modified would be better
 end
 
 
 function update_ecmc_state_reject!(ecmc_state::ECMCTunerState, delta)
     ecmc_state.n_lifts += 1
-    length(ecmc_state.acc_C) < 1 ? push!(ecmc_state.acc_C, 0) : push!(ecmc_state.acc_C, ecmc_state.acc_C[end])
+    #length(ecmc_state.acc_C) < 1 ? push!(ecmc_state.acc_C, 0) : push!(ecmc_state.acc_C, ecmc_state.acc_C[end])
+    push!(ecmc_state.acc_C, ecmc_state.n_acc/ecmc_state.n_steps)
     push!(ecmc_state.delta_arr, delta)
     push!(ecmc_state.mfps_arr, ecmc_state.mfps)
+    ecmc_state.step_acc = 0 # for google tuning
+    #push!(ecmc_state.n_acc_arr, ecmc_state.n_acc) # for google tuning but acc_C modified would be better
+    #push!(ecmc_state.reject_step_arr, ecmc_state.n_steps) # for google tuning but acc_C modified would be better
     ecmc_state.mfps = 0
 end
 
@@ -298,18 +305,23 @@ function check_tuning_convergence!(
     acc_C = ecmc_tuner_state.acc_C # TODO: make acc_C & delta_arr fixed-size (N) arrays that are updated in rolling fahsion
     
     # NOTE: N is increasing with n_steps. Mean of growing array gets slow.
-    N = minimum([length(acc_C), Int(floor(tuning_convergence_check.Npercent * ecmc_tuner_state.n_steps))]) #user input
-    mean_acc_C = mean(acc_C[end-N+1:end])  
+    N = Int(floor(tuning_convergence_check.Npercent * ecmc_tuner_state.n_steps)) #user input
+    #mean_acc_C = mean(acc_C[end-N+1:end])  
+    mean_acc_C = (acc_C[end]*ecmc_tuner_state.n_steps - acc_C[end-N]*(ecmc_tuner_state.n_steps-N))/N
 
-    mean_has_converged = abs(mean_acc_C - target_acc) < tuning_convergence_check.rel_dif_mean * target_acc 
-    standard_deviation_is_low_enough = std(acc_C[end-N+1:end]) < tuning_convergence_check.standard_deviation
+    #mean_has_converged = abs(mean_acc_C - target_acc) < tuning_convergence_check.rel_dif_mean #* target_acc 
+    mean_has_converged = abs(mean_acc_C - target_acc) < tuning_convergence_check.rel_dif_mean*0.3 #* target_acc 
+    #standard_deviation_is_low_enough = std(acc_C[end-N:end]) < tuning_convergence_check.standard_deviation
+    standard_deviation_is_low_enough = std(acc_C[end-N:end]) < tuning_convergence_check.standard_deviation*3
 
-    mean_delta = mean(ecmc_tuner_state.delta_arr[end-N+1:end])
+    mean_delta = mean(ecmc_tuner_state.delta_arr[end-N:end])
     #tuned_algorithm = reconstruct(algorithm, step_amplitude=mean_delta)
 
     ecmc_tuner_state.tuned_delta = mean_delta
 
-    if mean_has_converged & standard_deviation_is_low_enough
+    enough_steps = ecmc_tuner_state.n_steps > 5*10^3
+
+    if mean_has_converged & standard_deviation_is_low_enough & enough_steps
         #@show mean_delta
         #@show abs(mean_acc_C - target_acc) / target_acc
         #@show std(acc_C[end-N+1:end])
