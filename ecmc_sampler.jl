@@ -310,16 +310,17 @@ function check_tuning_convergence!(
     mean_acc_C = (acc_C[end]*ecmc_tuner_state.n_steps - acc_C[end-N]*(ecmc_tuner_state.n_steps-N))/N
 
     #mean_has_converged = abs(mean_acc_C - target_acc) < tuning_convergence_check.rel_dif_mean #* target_acc 
-    mean_has_converged = abs(mean_acc_C - target_acc) < tuning_convergence_check.rel_dif_mean*0.5 #* target_acc 
+    mean_has_converged = abs(mean_acc_C - target_acc) < tuning_convergence_check.rel_dif_mean*0.2 #* target_acc 
     #standard_deviation_is_low_enough = std(acc_C[end-N:end]) < tuning_convergence_check.standard_deviation
-    standard_deviation_is_low_enough = std(acc_C[end-N:end]) < tuning_convergence_check.standard_deviation
+    standard_deviation_is_low_enough = std(acc_C[end-N:end]) < tuning_convergence_check.standard_deviation*2
 
     mean_delta = mean(ecmc_tuner_state.delta_arr[end-N:end])
     #tuned_algorithm = reconstruct(algorithm, step_amplitude=mean_delta)
 
     ecmc_tuner_state.tuned_delta = mean_delta
 
-    enough_steps = ecmc_tuner_state.n_steps > 5*10^3
+    enough_steps = ecmc_tuner_state.n_steps > 2*10^3
+    enough_steps = true # for optimizing naive paramters
 
     if mean_has_converged & standard_deviation_is_low_enough & enough_steps
         #@show mean_delta

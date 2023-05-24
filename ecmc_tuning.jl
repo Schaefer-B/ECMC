@@ -39,12 +39,16 @@ export NaiveAdaption
 
 function adapt_delta(adaption_scheme::NaiveAdaption, delta, ecmc_tuner_state, tuner::MFPSTuner)
     target_acc =  tuner.target_mfps / (tuner.target_mfps  + 1) #TODO: compute once and store in algorithm struct
-    
+
     acc_array = ecmc_tuner_state.acc_C
     steps = ecmc_tuner_state.n_steps
     delta_arr = ecmc_tuner_state.delta_arr
 
     eval_steps = 240
+
+
+
+    params = ecmc_tuner_state.params
 
 
     if steps > eval_steps
@@ -53,18 +57,16 @@ function adapt_delta(adaption_scheme::NaiveAdaption, delta, ecmc_tuner_state, tu
 
         # acc_gradient blocks changes due to statistical fluctuations in the current_acc
         n_steps_calc =  2*eval_steps
-        #N_percent = min( 50*eval_steps, Int(floor(0.2*steps)))
-        #N_percent > n_steps_calc ? N=N_percent : N=n_steps_calc
         N = n_steps_calc
-        if steps > (n_steps_calc) # put in new function to call with size of N as argument etc
+        if steps > (n_steps_calc)
             Nhalf = Int(floor(N/2))
             acc_gradient = abs((acc_array[end]*steps + acc_array[end-N]*(steps-N) - 2*acc_array[end-Nhalf]*(steps-Nhalf))/Nhalf)
         else
-            acc_gradient = 1 # for start steps
+            acc_gradient = 1 # gradient for start steps
         end
         
 
-        # delta_gradient blocks mostly strong changes from a high delta to a low delta at the start of the tuning
+        # delta_gradient blocks mostly strong changes in delta to help minimizing overshooting
         test_length = 4
         if steps > test_length
             delta_gradient = 0
@@ -76,24 +78,23 @@ function adapt_delta(adaption_scheme::NaiveAdaption, delta, ecmc_tuner_state, tu
             delta_gradient = 0
         end
         
-        #integral = ecmc_tuner_state.n_acc
 
         err = (target_acc - current_acc)
-        #sign(err) < 0 ? err = err*target_acc/(1-target_acc) : err = err
-        err = sign(err)*(abs(err))^1.2
+        err = sign(err)*(abs(err))^(1+exp(params[4]))
 
         #trial and error part:
-        err_factor = 0.5 # 1 is fine
-        acc_grad_factor = 0.3 # acc_gradient is ca 0.02 at the end
-        delta_grad_factor = 0.
+        err_factor = exp(params[1]) # 0.5
+        acc_grad_factor = exp(params[2]) # acc_gradient is ca 0.02 at the end, so something like 0.3 is nice
+        delta_grad_factor = exp(params[3]) # 0.1
 
-        steps > 10^4 ? max_sup = 0.9 : max_sup = 0.8
+        steps > 10^4 ? max_sup = 0.95 : max_sup = 0.8
 
         suppression = delta_grad_factor * delta_gradient + 1/(1 + (acc_grad_factor * acc_gradient + 10*err)^2)
         #suppression = 0
+
         #change based on error
         pid = err_factor*(1 - min(max_sup, suppression))*err
-        #pid = err_factor*err
+
 
         #pid times delta to stay in same magnitude
         new_delta = max(1e-6, delta - delta*pid)
@@ -106,7 +107,6 @@ function adapt_delta(adaption_scheme::NaiveAdaption, delta, ecmc_tuner_state, tu
     end
 
 
-    #new_delta = delta - delta*Δacc # * 1/sqrt(ecmc_state.n_lifts)
     return new_delta
 end
 

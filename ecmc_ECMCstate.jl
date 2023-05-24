@@ -137,11 +137,12 @@ See also [`ECMCState`](@ref).
     mfps::Int64 = 0
     mfps_arr::Vector{Int64} = []
     delta_arr::Vector{Float64} = []
-    acc_C::Vector{Float64} = []
+    acc_C::Vector{Float64} = [] # should be only accepted steps and not percentage of accepted steps
     γ::Float64 = 0 # for google tuning
-    step_acc::Bool = 0 # for google tuning
-    #n_acc_arr::Vector{Int64} = [] # for google tuning but should be a modified acc_C
-    #reject_step_arr::Vector{Int64} = [] # for google tuning
+    step_acc::Bool = 0 # for google tuning # was this step accepted? y : n
+
+    params::Vector{Float64} = [] # for optimizing the naive adaption
+    
 end
 export ECMCTunerState
 

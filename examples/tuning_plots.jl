@@ -159,8 +159,8 @@ algorithm = ECMCSampler(
     step_amplitude=10^-1,
     factorized = false,
     #step_var=1.5*0.04,
-    direction_change = RefreshDirection(),
-    tuning = MFPSTuner(),
+    direction_change = ReflectDirection(),
+    tuning = MFPSTuner(adaption_scheme=GoogleAdaption()),
 )
 
 
