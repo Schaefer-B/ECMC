@@ -12,7 +12,7 @@ export ECMCNoTuner
 
 @with_kw struct MFPSTuner{A<:ECMCStepSizeAdaptor, C<:ECMCTuningConvergenceCheck} <: ECMCTuner
     target_mfps::Int64 = 5
-    max_n_steps::Int64 = 2*10^4
+    max_n_steps::Int64 = 1*10^5
     adaption_scheme::A = NaiveAdaption() #NaiveAdaption() 
     tuning_convergence_check::C = AcceptanceRatioConvergence(target_acc = target_mfps / (target_mfps  + 1))
 end
@@ -80,16 +80,16 @@ function adapt_delta(adaption_scheme::NaiveAdaption, delta, ecmc_tuner_state, tu
         
 
         err = (target_acc - current_acc)
-        err = sign(err)*(abs(err))^(1+exp(params[4]))
+        err = sign(err)*(abs(err))^(1+params[4])
 
         #trial and error part:
-        err_factor = exp(params[1]) # 0.5
-        acc_grad_factor = exp(params[2]) # acc_gradient is ca 0.02 at the end, so something like 0.3 is nice
-        delta_grad_factor = exp(params[3]) # 0.1
+        err_factor = params[1] # 0.5
+        acc_grad_factor = params[2] # acc_gradient is ca 0.02 at the end, so something like 0.3 is nice
+        delta_grad_factor = params[3] # 0.1
 
-        steps > 10^4 ? max_sup = 0.95 : max_sup = 0.8
+        steps > 10^4 ? max_sup = 0.9 : max_sup = 0.8
 
-        suppression = delta_grad_factor * delta_gradient + 1/(1 + (acc_grad_factor * acc_gradient + 10*err)^2)
+        suppression = delta_grad_factor * delta_gradient + 1/(1 + (acc_grad_factor * acc_gradient + params[5]*err)^2)
         #suppression = 0
 
         #change based on error

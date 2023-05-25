@@ -13,73 +13,76 @@ gr(size=(1.3*850, 1.3*600), thickness_scaling = 1.5)
 
 
 #---- Multivariate Gaussian --------------------------
-D = 16
-μ = fill(0.0, D)
-σ = collect(range(1, 10, D))
-truth = rand(MvNormal(μ, σ), Int(1e6))
+function MVGauss()
+    D = 16
+    μ = fill(0.0, D)
+    σ = collect(range(1, 10, D))
+    truth = rand(MvNormal(μ, σ), Int(1e6))
 
-likelihood = let D = D, μ = μ, σ = σ
-    logfuncdensity(params -> begin
+    likelihood = let D = D, μ = μ, σ = σ
+        logfuncdensity(params -> begin
 
-       return logpdf(MvNormal(μ, σ), params.a)
-    end)
-end 
+            return logpdf(MvNormal(μ, σ), params.a)
+        end)
+    end 
 
 
-prior = BAT.NamedTupleDist(
-    a = Uniform.(-5*σ, 5*σ)
-)
-
+    prior = BAT.NamedTupleDist(
+        a = Uniform.(-5*σ, 5*σ)
+    )
+    return likelihood, prior
+end
 
 #---- Funnel  --------------------------
-D = 16
-truth = rand(BAT.FunnelDistribution(a=0.5, b=1., n=D), Int(1e6))
+function Funnel()
+    D = 16
+    truth = rand(BAT.FunnelDistribution(a=0.5, b=1., n=D), Int(1e6))
 
-likelihood = let D = D
-    logfuncdensity(params -> begin
+    likelihood = let D = D
+        logfuncdensity(params -> begin
 
-       return logpdf(BAT.FunnelDistribution(a=0.5, b=1., n=D), params.a)
-    end)
-end 
+        return logpdf(BAT.FunnelDistribution(a=0.5, b=1., n=D), params.a)
+        end)
+    end 
 
-σ = 10*ones(D)
-prior = BAT.NamedTupleDist(
-    a = Uniform.(-σ, σ)
-)
-
+    σ = 10*ones(D)
+    prior = BAT.NamedTupleDist(
+        a = Uniform.(-σ, σ)
+    )
+    return likelihood, prior
+end
 
 #-------------------------------------------
-likelihood = logfuncdensity(params -> begin
+function Mixture()
+    likelihood = logfuncdensity(params -> begin
 
-    r1 = logpdf.(
-    MixtureModel(Normal[
-    Normal(-10.0, 1.2),
-    Normal(0.0, 1.8),
-    Normal(10.0, 2.5)], [0.1, 0.3, 0.6]), params.a[1])
+        r1 = logpdf.(
+        MixtureModel(Normal[
+        Normal(-10.0, 1.2),
+        Normal(0.0, 1.8),
+        Normal(10.0, 2.5)], [0.1, 0.3, 0.6]), params.a[1])
 
-    r2 = logpdf.(
-    MixtureModel(Normal[
-    Normal(-5.0, 2.2),
-    Normal(5.0, 1.5)], [0.3, 0.7]), params.a[2])
+        r2 = logpdf.(
+        MixtureModel(Normal[
+        Normal(-5.0, 2.2),
+        Normal(5.0, 1.5)], [0.3, 0.7]), params.a[2])
 
-    r3 = logpdf.(Normal(2.0, 1.5), params.a[3])
+        r3 = logpdf.(Normal(2.0, 1.5), params.a[3])
 
-    return r1+r2+r3
-end)
+        return r1+r2+r3
+    end)
 
-prior = BAT.NamedTupleDist(
-    a = [-20..20, -20.0..20.0, -10..10]
-)
+    prior = BAT.NamedTupleDist(
+        a = [-20..20, -20.0..20.0, -10..10]
+    )
 
-
-
-
-
+    return likelihood, prior
+end
 
 
 #-----------------
 
-
+likelihood, prior = MVGauss()
 posterior = PosteriorMeasure(likelihood, prior);
 logdensityof(posterior, rand(prior))
 
@@ -114,6 +117,7 @@ function idontwannacalliteverytime(bucket=100)
         push!(new_acc_C, mean_acc_C)
         push!(mean_delta, mean(tuning_state.delta_arr[step-N:step]))
         push!(acc_C_std, std(acc_C[step-N:step]))
+        #push!(acc_C_std, (std(tuning_state.delta_arr[step-N:step])/mean(tuning_state.delta_arr[step-N:step])))
 
     end
 
@@ -126,12 +130,15 @@ function idontwannacalliteverytime(bucket=100)
     plot!([target_acc], st=:hline, lw=2, label="Target")
     plot!(ylims=(0.6, 1.))
 
+    #plot!(xlabel="Steps")
 
     p2 = plot(tuning_state.delta_arr, lw=2, label = "Current delta", ylabel="Delta")
     plot!([tuning_state.tuned_delta], st=:hline, lw=2, label="Tuned delta")
-    plot!(mean_delta, lw=2, lc=:black, label="Current mean delta")
+    #plot!(mean_delta, lw=2, lc=:black, label="Current mean delta")
 
-    p3 = plot(acc_C_std, lw=2, label = "Current std of acceptance ratio", ylabel="Standard deviation")
+    #plot!(xlabel="Steps")
+
+    p3 = plot(acc_C_std, lw=2, label = "Current normalized std of delta", ylabel="Standard deviation")
     plot!(ylims=(0, 0.01))
     plot!([standard_deviation], st=:hline, lw=2, label="Upper boundary")
     #plot!((-1)*acc_C_std, lw=2, lc=blue)
@@ -139,7 +146,7 @@ function idontwannacalliteverytime(bucket=100)
     plot!(xlabel="Steps")
 
 
-    p = plot(p1, p2, p3, layout=(3,1) ,legend=true)
+    p = plot(p1, p2, p3, layout=(3,1) ,legend=false)
 end
 
 
@@ -156,11 +163,12 @@ algorithm = ECMCSampler(
     nchains = 1,
     chain_length=5, 
     remaining_jumps_before_refresh=50,
-    step_amplitude=10^-1,
+    step_amplitude=10^-4,
     factorized = false,
     #step_var=1.5*0.04,
-    direction_change = ReflectDirection(),
+    direction_change = RefreshDirection(),
     tuning = MFPSTuner(adaption_scheme=GoogleAdaption()),
+    #tuning = OptimTuner(),
 )
 
 
@@ -178,17 +186,13 @@ length(tuning_state.delta_arr)
 std(tuning_state.delta_arr[end-Int(floor(tuning_state.n_steps*0.3)):end])/tuning_state.tuned_delta
 
 
-png("MFPSTuner - google spike")
+png("GoogleTuner - Funnel")
 
-#average steps used after x tuning_samples
-average_steps_calc = 0
-x = 10
-for i in 1:x
-    sample = bat_sample(posterior, algorithm)
-    tuning_state = sample.ecmc_tuning_state[1]
-    average_steps_calc += length(tuning_state.delta_arr)
-end
-average_steps = average_steps_calc/x
+
+
+
+
+
 
 
 #delta at start

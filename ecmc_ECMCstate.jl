@@ -171,6 +171,7 @@ function ECMCTunerState(density::AbstractMeasureOrDensity, algorithm::ECMCSample
         tuned_delta = delta, 
         remaining_jumps_before_refresh = algorithm.remaining_jumps_before_refresh, 
         delta_arr = [delta, ]
+        , params = [0.83, 0.11, 0.16, 0.52, 26.9] # TO BE REMOVED
         )  for i in 1:algorithm.nchains]
 
     return ecmc_tuner_states
