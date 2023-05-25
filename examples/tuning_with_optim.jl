@@ -40,7 +40,7 @@ function iterator!(new_delta, iter_steps, target_acc, ecmc_tuner_state::ECMCTune
 
     N = iter_steps #last N jumps are evaluated
     if ecmc_tuner_state.n_steps > N
-        current_acc = (ecmc_tuner_state.acc_C[end]*ecmc_tuner_state.n_steps - ecmc_tuner_state.acc_C[end-N]*(ecmc_tuner_state.n_steps-N))/N
+        current_acc = (ecmc_tuner_state.acc_C[end] - ecmc_tuner_state.acc_C[end-N])/N
         r_value = abs(target_acc - current_acc)
     else
         current_acc = ecmc_tuner_state.n_acc/ecmc_tuner_state.n_steps #letzte N steps

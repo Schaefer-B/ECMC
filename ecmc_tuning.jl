@@ -52,7 +52,7 @@ function adapt_delta(adaption_scheme::NaiveAdaption, delta, ecmc_tuner_state, tu
 
 
     if steps > eval_steps
-        current_acc = (acc_array[end]*steps - acc_array[end-eval_steps]*(steps-eval_steps))/eval_steps
+        current_acc = (acc_array[end]- acc_array[end-eval_steps])/eval_steps
 
 
         # acc_gradient blocks changes due to statistical fluctuations in the current_acc
@@ -60,7 +60,7 @@ function adapt_delta(adaption_scheme::NaiveAdaption, delta, ecmc_tuner_state, tu
         N = n_steps_calc
         if steps > (n_steps_calc)
             Nhalf = Int(floor(N/2))
-            acc_gradient = abs((acc_array[end]*steps + acc_array[end-N]*(steps-N) - 2*acc_array[end-Nhalf]*(steps-Nhalf))/Nhalf)
+            acc_gradient = abs((acc_array[end] + acc_array[end-N] - 2*acc_array[end-Nhalf])/Nhalf)
         else
             acc_gradient = 1 # gradient for start steps
         end
@@ -101,7 +101,7 @@ function adapt_delta(adaption_scheme::NaiveAdaption, delta, ecmc_tuner_state, tu
 
 
     else
-        err = (target_acc - acc_array[end])
+        err = (target_acc - acc_array[end]/steps)
         new_delta = max(1e-6, delta - delta*err*0.2)
         #new_delta = delta
     end

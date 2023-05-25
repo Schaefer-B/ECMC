@@ -199,21 +199,17 @@ function update_ecmc_state_accept!(ecmc_state::ECMCTunerState, delta)
     ecmc_state.n_acc += 1
     ecmc_state.mfps += 1 
     push!(ecmc_state.delta_arr, delta)
-    push!(ecmc_state.acc_C, ecmc_state.n_acc/ecmc_state.n_steps)
+    push!(ecmc_state.acc_C, ecmc_state.n_acc)
     ecmc_state.step_acc = 1 # for google tuning
-    #push!(ecmc_state.n_acc_arr, ecmc_state.n_acc) # for google tuning but acc_C modified would be better
 end
 
 
 function update_ecmc_state_reject!(ecmc_state::ECMCTunerState, delta)
     ecmc_state.n_lifts += 1
-    #length(ecmc_state.acc_C) < 1 ? push!(ecmc_state.acc_C, 0) : push!(ecmc_state.acc_C, ecmc_state.acc_C[end])
-    push!(ecmc_state.acc_C, ecmc_state.n_acc/ecmc_state.n_steps)
+    push!(ecmc_state.acc_C, ecmc_state.n_acc)
     push!(ecmc_state.delta_arr, delta)
     push!(ecmc_state.mfps_arr, ecmc_state.mfps)
     ecmc_state.step_acc = 0 # for google tuning
-    #push!(ecmc_state.n_acc_arr, ecmc_state.n_acc) # for google tuning but acc_C modified would be better
-    #push!(ecmc_state.reject_step_arr, ecmc_state.n_steps) # for google tuning but acc_C modified would be better
     ecmc_state.mfps = 0
 end
 
@@ -308,7 +304,7 @@ function check_tuning_convergence!(
     # NOTE: N is increasing with n_steps. Mean of growing array gets slow.
     N = Int(floor(tuning_convergence_check.Npercent * ecmc_tuner_state.n_steps)) #user input
     #mean_acc_C = mean(acc_C[end-N+1:end])  
-    mean_acc_C = (acc_C[end]*ecmc_tuner_state.n_steps - acc_C[end-N]*(ecmc_tuner_state.n_steps-N))/N
+    mean_acc_C = (acc_C[end] - acc_C[end-N])/N
 
     #mean_has_converged = abs(mean_acc_C - target_acc) < tuning_convergence_check.rel_dif_mean #* target_acc 
     mean_has_converged = abs(mean_acc_C - target_acc) < tuning_convergence_check.rel_dif_mean*0.2 #* target_acc 

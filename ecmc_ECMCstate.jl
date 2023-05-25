@@ -119,7 +119,7 @@ Acts similar to `ECMCState`, but with additional information relevant for tuning
 - `mfps::Int64=0`: the current number of accepted new sample locations in a row.
 - `mfps_arr::Vector{Int64}=[]`: the maximal reached mfps values.
 - `delta_arr::Vector{Float64}=[]`: the values for delta after an accepted jump.
-- `acc_C::Vector{Float64}=[]`: a measurement for the percentage of accepted jumps at each step.
+- `acc_C::Vector{Float64}=[]`: n_acc at each step.
 
 See also [`ECMCState`](@ref).
 """
@@ -137,11 +137,11 @@ See also [`ECMCState`](@ref).
     mfps::Int64 = 0
     mfps_arr::Vector{Int64} = []
     delta_arr::Vector{Float64} = []
-    acc_C::Vector{Float64} = [] # should be only accepted steps and not percentage of accepted steps
+    acc_C::Vector{Float64} = [] 
     γ::Float64 = 0 # for google tuning
     step_acc::Bool = 0 # for google tuning # was this step accepted? y : n
 
-    params::Vector{Float64} = [] # for optimizing the naive adaption
+    params::Vector{Float64} = [] # for optimizing the naive adaption (and could be used for optimizing α in google tuning etc)
     
 end
 export ECMCTunerState

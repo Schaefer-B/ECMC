@@ -113,7 +113,7 @@ function idontwannacalliteverytime(bucket=100)
     for step in 1:n_steps
 
         N = Int(floor(Npercent * step))
-        mean_acc_C = (acc_C[step]*step - acc_C[step-N]*(step-N))/N
+        mean_acc_C = (acc_C[step] - acc_C[step-N])/N
         push!(new_acc_C, mean_acc_C)
         push!(mean_delta, mean(tuning_state.delta_arr[step-N:step]))
         push!(acc_C_std, std(acc_C[step-N:step]))
@@ -208,20 +208,9 @@ plot!([target_acc], st=:hline, lw=2, label="Target Acc_C")
 
 
 
-#----- Plot new Acc_C -------------------------------------
-new_acc_C = []
-bucket_width = 2500 # set to iter_steps if optim tuning
-k_max = Int(floor(length(tuning_state.acc_C)/bucket_width))
-for k in 1:k_max
-    for i in (1+(k-1)*bucket_width):(k*bucket_width)
-        acc = (tuning_state.acc_C[k*bucket_width]*k*bucket_width - tuning_state.acc_C[(1+(k-1)*bucket_width)]*(1+(k-1)*bucket_width))/(bucket_width-1)
-        push!(new_acc_C, acc)
-    end
-end
 
-plot(new_acc_C, lw=2, label="new_Acc_C")
-target_acc = algorithm.tuning.target_mfps/(algorithm.tuning.target_mfps+1)
-plot!([target_acc], st=:hline, lw=2, label="Target Acc_C")
+
+
 
 #----- Plot Delta ------------------------------------------
 N = minimum([length(tuning_state.acc_C), Int(floor(0.3*tuning_state.n_steps))])
