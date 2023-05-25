@@ -309,9 +309,22 @@ function check_tuning_convergence!(
     #mean_has_converged = abs(mean_acc_C - target_acc) < tuning_convergence_check.rel_dif_mean #* target_acc 
     mean_has_converged = abs(mean_acc_C - target_acc) < tuning_convergence_check.rel_dif_mean*0.2 #* target_acc 
 
-    standard_deviation_is_low_enough = std(acc_C[end-N:end]) < tuning_convergence_check.standard_deviation*2
-    standard_deviation_is_low_enough = true
+
+
+    #-----checking the std of the mean accuracy of the last n_steps_eval to see if its low enough for convergence----
+    current_acc_arr = []
+    n_steps_eval = 180+Int(floor(N/2))
+    if ecmc_tuner_state.n_steps > N+n_steps_eval
+        for i in 1:n_steps_eval
+            c_mean = (acc_C[end-i+1] - acc_C[end-N-i+1])/N
+            push!(current_acc_arr, c_mean)
+        end
+        standard_deviation_is_low_enough = std(current_acc_arr) < 0.003 #tuning_convergence_check.standard_deviation*2
+    else
+        standard_deviation_is_low_enough = false
+    end
     #standard_deviation_is_low_enough = std(ecmc_tuner_state.delta_arr[end-N:end]) < 0.1#tuning_convergence_check.standard_deviation
+    #------
 
     mean_delta = mean(ecmc_tuner_state.delta_arr[end-N:end])
     #tuned_algorithm = reconstruct(algorithm, step_amplitude=mean_delta)

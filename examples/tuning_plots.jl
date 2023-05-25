@@ -110,43 +110,53 @@ function idontwannacalliteverytime(bucket=100)
     new_acc_C = []
     acc_C_std = []
     mean_delta = []
+    current_std_arr = []
+
     for step in 1:n_steps
 
         N = Int(floor(Npercent * step))
         mean_acc_C = (acc_C[step] - acc_C[step-N])/N
         push!(new_acc_C, mean_acc_C)
-        push!(mean_delta, mean(tuning_state.delta_arr[step-N:step]))
-        push!(acc_C_std, std(acc_C[step-N:step]))
-        #push!(acc_C_std, (std(tuning_state.delta_arr[step-N:step])/mean(tuning_state.delta_arr[step-N:step])))
+        #push!(mean_delta, mean(tuning_state.delta_arr[step-N:step]))
+
+        n_steps_eval = 180+Int(floor(N/2))
+        current_acc_arr = []
+        if step > N+n_steps_eval
+            for i in 1:n_steps_eval
+                c_mean = (acc_C[step-i+1] - acc_C[step-N-i+1])/N
+                push!(current_acc_arr, c_mean)
+            end
+            current_std = std(current_acc_arr)
+        else
+            current_std = 0#std(current_acc_arr)
+        end
+        push!(current_std_arr, current_std)
 
     end
 
 
-
-
-    p1 = plot(title="MFPSTuner")
+    plot_acceptance = plot(title="MFPSTuner")
     plot!(new_acc_C, lw=2, label="Current ratio", ylabel="Acceptance ratio")
     target_acc = algorithm.tuning.target_mfps/(algorithm.tuning.target_mfps+1)
     plot!([target_acc], st=:hline, lw=2, label="Target")
-    plot!(ylims=(0.6, 1.))
+    #plot!(ylims=(0.6, 1.))
 
     #plot!(xlabel="Steps")
 
-    p2 = plot(tuning_state.delta_arr, lw=2, label = "Current delta", ylabel="Delta")
+    plot_delta = plot(tuning_state.delta_arr, lw=2, label = "Current delta", ylabel="Delta")
     plot!([tuning_state.tuned_delta], st=:hline, lw=2, label="Tuned delta")
     #plot!(mean_delta, lw=2, lc=:black, label="Current mean delta")
 
     #plot!(xlabel="Steps")
 
-    p3 = plot(acc_C_std, lw=2, label = "Current normalized std of delta", ylabel="Standard deviation")
-    plot!(ylims=(0, 0.01))
-    plot!([standard_deviation], st=:hline, lw=2, label="Upper boundary")
-    #plot!((-1)*acc_C_std, lw=2, lc=blue)
+    plot_std = plot(current_std_arr, lw=2, label = "Current standard deviation of acceptance ratio", ylabel="Standard deviation")
+    plot!(ylims=(0, 0.02))
+    plot!([0.003], st=:hline, lw=2, label="Upper boundary")
 
     plot!(xlabel="Steps")
 
 
-    p = plot(p1, p2, p3, layout=(3,1) ,legend=false)
+    p = plot(plot_acceptance, plot_delta, plot_std, layout=(3,1) ,legend=false)
 end
 
 
@@ -167,7 +177,7 @@ algorithm = ECMCSampler(
     factorized = false,
     #step_var=1.5*0.04,
     direction_change = RefreshDirection(),
-    tuning = MFPSTuner(adaption_scheme=GoogleAdaption()),
+    tuning = MFPSTuner(adaption_scheme=NaiveAdaption()),
     #tuning = OptimTuner(),
 )
 
