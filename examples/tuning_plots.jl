@@ -35,7 +35,7 @@ end
 
 #---- Funnel  --------------------------
 function Funnel()
-    D = 16
+    D = 64
     truth = rand(BAT.FunnelDistribution(a=0.5, b=1., n=D), Int(1e6))
 
     likelihood = let D = D
@@ -82,7 +82,7 @@ end
 
 #-----------------
 
-likelihood, prior = MVGauss()
+likelihood, prior = Funnel()
 posterior = PosteriorMeasure(likelihood, prior);
 logdensityof(posterior, rand(prior))
 
@@ -90,7 +90,7 @@ logdensityof(posterior, rand(prior))
 #--------------------------
 
 #for plotting
-function idontwannacalliteverytime(bucket=100)
+function idontwannacalliteverytime(title = "Test", everyaxis=false)
 
     #bucket_width = bucket
     #k_max = Int(floor(length(tuning_state.acc_C)/bucket_width))
@@ -104,6 +104,7 @@ function idontwannacalliteverytime(bucket=100)
     acc_C = tuning_state.acc_C
     n_steps = tuning_state.n_steps
     Npercent = 0.3
+    n_abs = 180
     standard_deviation = 0.001
     rel_dif_mean = 0.01 
     
@@ -119,7 +120,7 @@ function idontwannacalliteverytime(bucket=100)
         push!(new_acc_C, mean_acc_C)
         #push!(mean_delta, mean(tuning_state.delta_arr[step-N:step]))
 
-        n_steps_eval = 180+Int(floor(N/2))
+        n_steps_eval = n_abs+Int(floor(N/2))
         current_acc_arr = []
         if step > N+n_steps_eval
             for i in 1:n_steps_eval
@@ -135,30 +136,38 @@ function idontwannacalliteverytime(bucket=100)
     end
 
 
-    plot_acceptance = plot(title="MFPSTuner")
+    plot_acceptance = plot(title=title)
     plot!(new_acc_C, lw=2, label="Current ratio", ylabel="Acceptance ratio")
     target_acc = algorithm.tuning.target_mfps/(algorithm.tuning.target_mfps+1)
-    plot!([target_acc], st=:hline, lw=2, label="Target")
+    plot!([target_acc], st=:hline, lw=2, label="Target ratio")
     #plot!(ylims=(0.6, 1.))
+    if everyaxis == true
+        plot!(xlabel="Steps")
+    end
 
-    #plot!(xlabel="Steps")
 
     plot_delta = plot(tuning_state.delta_arr, lw=2, label = "Current delta", ylabel="Delta")
-    plot!([tuning_state.tuned_delta], st=:hline, lw=2, label="Tuned delta")
+    plot!([tuning_state.tuned_delta], st=:hline, lw=2, label="Chosen delta")
     #plot!(mean_delta, lw=2, lc=:black, label="Current mean delta")
+    if everyaxis == true
+        plot!(xlabel="Steps")
+    end
 
-    #plot!(xlabel="Steps")
 
-    plot_std = plot(current_std_arr, lw=2, label = "Current standard deviation of acceptance ratio", ylabel="Standard deviation")
-    plot!(ylims=(0, 0.02))
-    plot!([0.003], st=:hline, lw=2, label="Upper boundary")
+    start_step = Int(floor(n_abs/(1-1.5*Npercent)))
+    x = (start_step+1):(n_steps)
+    y = current_std_arr[start_step+1:end]
+    plot_std = plot((x, y), lw=2, label = "Current std of acc. ratio", ylabel="Standard deviation")
+    plot!(ylims=(0, Inf))
+    plot!(xlims=(0, Inf))
+    plot!([0.003], st=:hline, lw=2, label="Convergence boundary")
 
     plot!(xlabel="Steps")
 
 
-    p = plot(plot_acceptance, plot_delta, plot_std, layout=(3,1) ,legend=false)
+    p = plot(plot_acceptance, plot_delta, plot_std, layout=(3,1) ,legend=true)
+    return p
 end
-
 
 include("../ecmc.jl")
 
@@ -177,7 +186,7 @@ algorithm = ECMCSampler(
     factorized = false,
     #step_var=1.5*0.04,
     direction_change = RefreshDirection(),
-    tuning = MFPSTuner(adaption_scheme=NaiveAdaption()),
+    tuning = MFPSTuner(adaption_scheme=GoogleAdaption(), max_n_steps = 3*10^4),
     #tuning = OptimTuner(),
 )
 
@@ -189,22 +198,21 @@ tuning_state = sample.ecmc_tuning_state[1] # tuning state for chain 1
 
 
 #---------Ben Plot-----------
-idontwannacalliteverytime()
+tuner_plot = idontwannacalliteverytime("Naive Tuner with suppression", true)
+#display(tuner_plot)
 
 tuning_state.tuned_delta
 length(tuning_state.delta_arr)
 std(tuning_state.delta_arr[end-Int(floor(tuning_state.n_steps*0.3)):end])/tuning_state.tuned_delta
 
 
-png("GoogleTuner - Funnel")
+png("testete2")
 
 
 
 
-
-
-
-
+#------------------------------------------
+#------------------------------------------
 #delta at start
 plot(tuning_state.delta_arr[1:100], label = "delta")
 
@@ -241,10 +249,11 @@ tuning_state.tuned_delta
 
 
 #----- Plot samples vs. truth ------------------------------
+D = totalndof(posterior)
 p = plot(layout=(4,4), size=(1600, 1000))
 for i in 1:D
     p = plot!(samples, i, subplot=i, legend=false)
-    p = plot!(truth[i, :], subplot=i, lw=2, lc=:black, st=:stephist, normed=true)
+    #p = plot!(truth[i, :], subplot=i, lw=2, lc=:black, st=:stephist, normed=true)
 end 
 p
 

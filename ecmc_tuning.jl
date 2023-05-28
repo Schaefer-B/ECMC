@@ -44,66 +44,69 @@ function adapt_delta(adaption_scheme::NaiveAdaption, delta, ecmc_tuner_state, tu
     steps = ecmc_tuner_state.n_steps
     delta_arr = ecmc_tuner_state.delta_arr
 
-    eval_steps = 240
-
-
 
     params = ecmc_tuner_state.params
 
 
-    if steps > eval_steps
-        current_acc = (acc_array[end]- acc_array[end-eval_steps])/eval_steps
+    eval_steps = Int(floor(params[8]))
+
+    if steps%eval_steps == 0
+        if steps > eval_steps
+            current_acc = (acc_array[end]- acc_array[end-eval_steps])/eval_steps
 
 
-        # acc_gradient blocks changes due to statistical fluctuations in the current_acc
-        n_steps_calc =  2*eval_steps
-        N = n_steps_calc
-        if steps > (n_steps_calc)
-            Nhalf = Int(floor(N/2))
-            acc_gradient = abs((acc_array[end] + acc_array[end-N] - 2*acc_array[end-Nhalf])/Nhalf)
-        else
-            acc_gradient = 1 # gradient for start steps
-        end
-        
-
-        # delta_gradient blocks mostly strong changes in delta to help minimizing overshooting
-        test_length = 4
-        if steps > test_length
-            delta_gradient = 0
-            for i in 1:test_length
-                delta_gradient += delta_arr[end-i+1]
+            # acc_gradient blocks changes due to statistical fluctuations in the current_acc
+            n_steps_calc =  2*eval_steps
+            N = n_steps_calc
+            if steps > (n_steps_calc)
+                Nhalf = Int(floor(N/2))
+                acc_gradient = abs((acc_array[end] + acc_array[end-N] - 2*acc_array[end-Nhalf])/Nhalf)
+            else
+                acc_gradient = 1 # gradient for start steps
             end
-            delta_gradient = abs(delta_gradient/(test_length*delta))
+            
+
+            # delta_gradient blocks mostly strong changes in delta to help minimizing overshooting
+            test_length = 10
+            if steps > test_length
+                delta_gradient = 0
+                for i in 1:test_length
+                    delta_gradient += sign(delta_arr[end-i+1])
+                end
+                delta_gradient = abs(delta_gradient/(test_length))
+            else
+                delta_gradient = 0
+            end
+            
+
+            err = (target_acc - current_acc)
+            err = sign(err)*(abs(err))^(1+params[4])
+
+            #trial and error part:
+            err_factor = params[1] # 0.5
+            acc_grad_factor = params[2] # acc_gradient is ca 0.02 at the end, so something like 0.3 is nice
+            delta_grad_factor = params[3] # 0.09 # maximum delta gradient is 1
+
+            steps > 10^4 ? max_sup = 0.9 : max_sup = 0.9
+
+            suppression = delta_grad_factor * delta_gradient + 1/(max(0.001, params[6]) + (acc_grad_factor * acc_gradient + params[5]*abs(err))^(1+params[7]))
+            #suppression = 0
+
+            #change based on error
+            pid = err_factor*(1 - min(max_sup, suppression))*err
+
+
+            #pid times delta to stay in same magnitude
+            new_delta = max(1e-6, delta - delta*pid)
+
+
         else
-            delta_gradient = 0
+            err = (target_acc - acc_array[end]/steps)
+            new_delta = max(1e-6, delta - delta*err*0.2)
+            #new_delta = delta
         end
-        
-
-        err = (target_acc - current_acc)
-        err = sign(err)*(abs(err))^(1+params[4])
-
-        #trial and error part:
-        err_factor = params[1] # 0.5
-        acc_grad_factor = params[2] # acc_gradient is ca 0.02 at the end, so something like 0.3 is nice
-        delta_grad_factor = params[3] # 0.1
-
-        steps > 10^4 ? max_sup = 0.9 : max_sup = 0.8
-
-        suppression = delta_grad_factor * delta_gradient + 1/(1 + (acc_grad_factor * acc_gradient + params[5]*err)^2)
-        #suppression = 0
-
-        #change based on error
-        pid = err_factor*(1 - min(max_sup, suppression))*err
-
-
-        #pid times delta to stay in same magnitude
-        new_delta = max(1e-6, delta - delta*pid)
-
-
     else
-        err = (target_acc - acc_array[end]/steps)
-        new_delta = max(1e-6, delta - delta*err*0.2)
-        #new_delta = delta
+        new_delta = delta
     end
 
 

@@ -36,7 +36,7 @@ end
 
 #---- Funnel  --------------------------
 function Funnel()
-    D = 16
+    D = 64
     truth = rand(BAT.FunnelDistribution(a=0.5, b=1., n=D), Int(1e6))
 
     likelihood = let D = D
@@ -81,7 +81,7 @@ function Mixture()
 end
 
 
-likelihood, prior = MVGauss()
+likelihood, prior = Funnel()
 
 posterior = PosteriorMeasure(likelihood, prior);
 logdensityof(posterior, rand(prior))
@@ -104,7 +104,7 @@ algorithm = ECMCSampler(
     factorized = false,
     #step_var=1.5*0.04,
     direction_change = RefreshDirection(),
-    tuning = MFPSTuner(max_n_steps=2*10^4, adaption_scheme=NaiveAdaption()),
+    tuning = MFPSTuner(max_n_steps=3*10^4, adaption_scheme=NaiveAdaption()),
 )
 
 posterior_notrafo = convert(AbstractMeasureOrDensity, posterior)
@@ -143,7 +143,7 @@ function create_tuner_states(density, algorithm, nchains, params)
     end
     #delta = algorithm.step_amplitude
 
-    
+    params = abs.(params)
 
     ecmc_tuner_states = [ECMCTunerState(
         C = initial_samples[i], 
@@ -189,11 +189,11 @@ end
 
 function plot_optim(tstate)
     
-    p = plot(layout=(3,2), legend=false)
+    p = plot(layout=(3,3), legend=false)
 
     plot!(tstate.av_steps_arr, subplot=1, lw=2, label="Average steps", ylabel="Average steps")
     plot!(title="Optimizing of NaiveAdaption parameters", subplot=1)
-    plot!(ylims=(0, 4000), subplot=1)
+    plot!(ylims=(0, Inf), subplot=1)
     #plot!(title="Optimizing of NaiveAdaption parameters")
 
     plot!(xlabel="Iterations")
@@ -219,7 +219,7 @@ function optimize_and_plot(sparams, optim_algo=NelderMead(), nchains = 10, max_i
     method = optim_algo,
     g_tol = 1e-8,
     iterations = max_iter_steps,
-    store_trace = true,
+    store_trace = false,
     show_trace = false
     )
 
@@ -235,25 +235,30 @@ end
 
 
 #--------------actually doing it---------------------------
-p1::Float64 = 1 # strongness of answer to incorrect acc
-p2::Float64 = 0.2 # strongness of suppression when at correct acc
-p3::Float64 = 0.1 # strongness of suppression if delta changes to rapidly
-p4::Float64 = 0.5 # changes how fast the error between acc and target is considered low
-p5::Float64 = 20 # error factor in context with p2
+include("../ecmc.jl")
+p1::Float64 = 12. # strongness of answer to incorrect acc
+p2::Float64 = 0.19 # strongness of suppression when at correct acc
+p3::Float64 = 0.08 # strongness of suppression if delta changes to rapidly
+p4::Float64 = 0.4 # changes how fast the error between acc and target is considered low
+p5::Float64 = 30. # error factor in context with p2
+p6::Float64 = 1.2 # minor stuff related to p5
+p7::Float64 = 1.1 # minor stuff related to p5
+p8::Float64 = 120. # evaluation steps
 
-starting_params = ([p1,p2,p3,p4,p5])
+starting_params = ([p1,p2,p3,p4,p5,p6,p7,p8])
 
 
-chains_to_evaluate = 30 # the higher the less fluctuations in average steps evaluated
+chains_to_evaluate = 40 # the higher the less fluctuations in average steps evaluated
 max_optim_iterations = 20 # optim changes the params 5 times as often as this value
-# CAREFUL! max iterations of the tuning = chains_to_evaluate * max_optim_iterations * 5
+# CAREFUL! max iterations of the tuning = chains_to_evaluate * max_optim_iterations * (approx:)5
 
 
 optim_algo = ParticleSwarm(
-                lower = [0.4, 0.05, 0.05, 0., 1.],
-                upper = [2., 0.5, 0.5, 1., 50.],
+                lower = [0.4, 0.05, 0.05, 0., 1., 0.1, 0.],
+                upper = [2., 0.5, 0.5, 1., 50., 50., 3.],
                 n_particles = 5
 )
+
 optim_algo = NelderMead()
 
 
@@ -263,22 +268,30 @@ optimal_parameters, final_plot, t_state = optimize_and_plot(starting_params, opt
 
 #view the results
 optimal_parameters
-true_parameters = (optimal_parameters) # to replace the "exp(params[1])" etc in ecmc tuning
+true_parameters = abs.(optimal_parameters) # to replace the "exp(params[1])" etc in ecmc tuning
+
 #nelder mead:
-#0.8280686307271863
-#0.11588401184244114
-#0.15992126404238294
-#0.5190519766658912
-#26.87637780391431
+15.348506323247225
+0.207210542888343
+0.0732514723260891
+0.4934509024569294
+17.587673168668637
+2.069505973296211
+0.6136869940758715
+163.53188824455017
 
 #particle ParticleSwarm
-#1.0608071618691652
-#0.3408471084395713
-#0.05
-#0.7051362508382684
-#39.19554398847246
-final_plot
+1.0314262450574858
+0.1975041889054433
+0.10281399554024151
+0.49954896991395603
+19.99712649821221
+0.1
+1.00856400097384
+
+final_plot = plot_optim(t_state)
 png("if i misclick")
+png("NelderMead")
 png("ParticleSwarm nchains 100 maxiter 20 particles 4")
 change = ((starting_params) - true_parameters)./(starting_params)
 
@@ -327,7 +340,7 @@ function calculate_steps(nchains, likelihood, prior, tuning, direction_change = 
     shape = varshape(posterior_transformed)
 
 
-    params = [0.828, 0.116, 0.16, 0.52, 26.9]
+    params = [0.828, 0.116, 0.16, 0.52, 26.9, 1, 1]
 
     tuner_states = create_tuner_states(posterior_transformed, algorithm, nchains, params)
 
