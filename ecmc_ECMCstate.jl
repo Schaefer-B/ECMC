@@ -171,7 +171,7 @@ function ECMCTunerState(density::AbstractMeasureOrDensity, algorithm::ECMCSample
         tuned_delta = delta, 
         remaining_jumps_before_refresh = algorithm.remaining_jumps_before_refresh, 
         delta_arr = [delta, ]
-        , params = [15.348506323247225,
+        , params = [0.98,
         0.207210542888343,
         0.0732514723260891,
         0.4934509024569294,

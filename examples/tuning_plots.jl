@@ -13,8 +13,8 @@ gr(size=(1.3*850, 1.3*600), thickness_scaling = 1.5)
 
 
 #---- Multivariate Gaussian --------------------------
-function MVGauss()
-    D = 16
+function MVGauss(dimension=16)
+    D = dimension
     μ = fill(0.0, D)
     σ = collect(range(1, 10, D))
     truth = rand(MvNormal(μ, σ), Int(1e6))
@@ -34,8 +34,8 @@ function MVGauss()
 end
 
 #---- Funnel  --------------------------
-function Funnel()
-    D = 64
+function Funnel(dimension = 16)
+    D = dimension
     truth = rand(BAT.FunnelDistribution(a=0.5, b=1., n=D), Int(1e6))
 
     likelihood = let D = D
@@ -82,7 +82,7 @@ end
 
 #-----------------
 
-likelihood, prior = Funnel()
+likelihood, prior = Mixture()
 posterior = PosteriorMeasure(likelihood, prior);
 logdensityof(posterior, rand(prior))
 
@@ -154,9 +154,16 @@ function idontwannacalliteverytime(title = "Test", everyaxis=false)
     end
 
 
-    start_step = Int(floor(n_abs/(1-1.5*Npercent)))
-    x = (start_step+1):(n_steps)
-    y = current_std_arr[start_step+1:end]
+    start_step = 0
+    for s in current_std_arr
+        start_step += 1
+        if s != 0
+            break
+        end
+    end
+    start_step += 2 # temporary so it looks better
+    x = (start_step):(n_steps)
+    y = current_std_arr[start_step:end]
     plot_std = plot((x, y), lw=2, label = "Current std of acc. ratio", ylabel="Standard deviation")
     plot!(ylims=(0, Inf))
     plot!(xlims=(0, Inf))
@@ -166,8 +173,17 @@ function idontwannacalliteverytime(title = "Test", everyaxis=false)
 
 
     p = plot(plot_acceptance, plot_delta, plot_std, layout=(3,1) ,legend=true)
+    plot!(xlims=(0, Inf))
     return p
 end
+
+function save_plot(title)
+    idontwannacalliteverytime(title, false)
+    png(string(title, "1"))
+    idontwannacalliteverytime(title, true)
+    png(string(title, "2"))
+end
+
 
 include("../ecmc.jl")
 
@@ -177,17 +193,16 @@ include("../examples/tuning_with_optim.jl")
 
 algorithm = ECMCSampler(
     trafo = PriorToUniform(),
-    nsamples=10^4,
+    nsamples=4*10^5,
     nburnin = 0,
-    nchains = 1,
+    nchains = 2,
     chain_length=5, 
     remaining_jumps_before_refresh=50,
     step_amplitude=10^-4,
     factorized = false,
     #step_var=1.5*0.04,
     direction_change = RefreshDirection(),
-    tuning = MFPSTuner(adaption_scheme=GoogleAdaption(), max_n_steps = 3*10^4),
-    #tuning = OptimTuner(),
+    tuning = MFPSTuner(adaption_scheme=GoogleAdaption(), max_n_steps = 2*10^4),
 )
 
 
@@ -198,7 +213,7 @@ tuning_state = sample.ecmc_tuning_state[1] # tuning state for chain 1
 
 
 #---------Ben Plot-----------
-tuner_plot = idontwannacalliteverytime("Naive Tuner with suppression", true)
+tuner_plot = idontwannacalliteverytime("Naive Tuner with suppression", false)
 #display(tuner_plot)
 
 tuning_state.tuned_delta
@@ -206,15 +221,21 @@ length(tuning_state.delta_arr)
 std(tuning_state.delta_arr[end-Int(floor(tuning_state.n_steps*0.3)):end])/tuning_state.tuned_delta
 
 
-png("testete2")
 
-
-
+#save 2 plots with title and legends false/true
+save_plot("Naive Tuner with suppression")
 
 #------------------------------------------
+#BAT-plot distribution:
+plot(
+    samples, #(:(mu[1]), :sigma),
+    mean = false, std = false, globalmode = false, marginalmode = false,
+    nbins = 200
+)
+png("Mixture Model")
 #------------------------------------------
 #delta at start
-plot(tuning_state.delta_arr[1:100], label = "delta")
+    plot(tuning_state.delta_arr[1:100], label = "delta")
 
 plot(tuning_state.reject_step_arr[1:10])
 

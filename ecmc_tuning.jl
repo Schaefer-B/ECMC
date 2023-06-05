@@ -50,7 +50,7 @@ function adapt_delta(adaption_scheme::NaiveAdaption, delta, ecmc_tuner_state, tu
 
     eval_steps = Int(floor(params[8]))
 
-    if steps%eval_steps == 0
+    #if steps%eval_steps == 0
         if steps > eval_steps
             current_acc = (acc_array[end]- acc_array[end-eval_steps])/eval_steps
 
@@ -102,13 +102,13 @@ function adapt_delta(adaption_scheme::NaiveAdaption, delta, ecmc_tuner_state, tu
 
         else
             err = (target_acc - acc_array[end]/steps)
-            new_delta = max(1e-6, delta - delta*err*0.2)
+            new_delta = max(1e-6, delta - delta*err*0.25)
             #new_delta = delta
         end
-    else
-        new_delta = delta
-    end
-
+    #else
+    #    new_delta = delta
+    #end
+        #steps > eval_steps ? new_delta = max(1e-6, delta - delta*(target_acc - (acc_array[end]- acc_array[end-eval_steps])/eval_steps)) : new_delta = max(1e-6, delta - delta*(target_acc - acc_array[end]/steps))#truly naive tuning
 
     return new_delta
 end

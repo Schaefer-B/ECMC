@@ -332,7 +332,7 @@ function check_tuning_convergence!(
     ecmc_tuner_state.tuned_delta = mean_delta
 
     enough_steps = ecmc_tuner_state.n_steps > 0.5*10^4
-    enough_steps = true # for optimizing naive paramters
+    enough_steps = true # true, if no minimum steps needed
 
     if mean_has_converged & standard_deviation_is_low_enough & enough_steps
         #@show mean_delta
