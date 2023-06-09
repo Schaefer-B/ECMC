@@ -82,7 +82,7 @@ end
 
 #-----------------
 
-likelihood, prior = Mixture()
+likelihood, prior = Funnel()
 posterior = PosteriorMeasure(likelihood, prior);
 logdensityof(posterior, rand(prior))
 
@@ -193,7 +193,7 @@ include("../examples/tuning_with_optim.jl")
 
 algorithm = ECMCSampler(
     trafo = PriorToUniform(),
-    nsamples=4*10^5,
+    nsamples=0.1*10^5,
     nburnin = 0,
     nchains = 2,
     chain_length=5, 

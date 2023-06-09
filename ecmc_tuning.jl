@@ -146,8 +146,39 @@ function adapt_delta(adaption_scheme::GoogleAdaption, delta, ecmc_tuner_state, t
     #steps = ecmc_tuner_state.n_steps
 
     γ = ecmc_tuner_state.γ
-    α = 0.01
+    α = ecmc_tuner_state.α
+    new = true
 
+    if new == true
+        min_α = 0.001
+        max_α = 1
+        change = 0.99
+        eval_steps = 240
+
+        acc_array = ecmc_tuner_state.acc_C
+        target_acc =  tuner.target_mfps / (tuner.target_mfps  + 1)
+
+        if ecmc_tuner_state.n_steps > eval_steps
+            current_acc = (acc_array[end]- acc_array[end-eval_steps])/eval_steps
+            err = abs(target_acc - current_acc)
+            if γ == 0
+                delta_p_std = std(ecmc_tuner_state.delta_arr[end-eval_steps:end])/mean(ecmc_tuner_state.delta_arr[end-eval_steps:end])
+                if err < 0.01
+                    α = max(min_α, α*change)
+                    #ecmc_tuner_state.α_acc_err = err
+                else
+                    α = min(max_α, α/change)
+                end
+                
+                
+
+            #elseif err > 0.05 && abs(γ)<max_α
+            #    α = abs(γ)
+            end
+            
+            ecmc_tuner_state.α = α
+        end
+    end
 
     β = target_acc/(1-target_acc) * α
 
@@ -169,8 +200,8 @@ function adapt_delta(adaption_scheme::GoogleAdaption, delta, ecmc_tuner_state, t
     #else
     #    new_delta = delta
     #end
-    new_delta = delta*exp(γ)
-
+    
+    new_delta = max(delta*exp(γ),10^-8)
     return new_delta
 
 end

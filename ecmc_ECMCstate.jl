@@ -140,6 +140,8 @@ See also [`ECMCState`](@ref).
     acc_C::Vector{Float64} = [] 
     γ::Float64 = 0 # for google tuning
     step_acc::Bool = 0 # for google tuning # was this step accepted? y : n
+    α = 0.1
+    α_acc_err = 1 # for new google tuning
 
     params::Vector{Float64} = [] # for optimizing the naive adaption (and could be used for optimizing α in google tuning etc)
     

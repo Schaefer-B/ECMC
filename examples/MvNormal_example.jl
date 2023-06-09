@@ -39,7 +39,7 @@ algorithm = ECMCSampler(
     remaining_jumps_before_refresh=50,
     step_amplitude=0.04,
     factorized = false,
-    step_var=1.5*0.04,
+    #step_var=1.5*0.04,
     direction_change = RefreshDirection(),
     tuning = MFPSTuner(),
 )
@@ -49,9 +49,10 @@ sampling_result = bat_sample(posterior, algorithm)
 samples = sampling_result.result
 
 
-plot(samples)
+plot(samples, leftmargin=3.5Plots.mm)
 
 # comparison: ECMC sampes vs IID samples
+gr(display_type=:inline)
 p = plot(layout=(4,4), size=(1600, 1000))
 for i in 1:D
     p = plot!(samples, i, subplot=i, legend=false)

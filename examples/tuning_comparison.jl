@@ -429,7 +429,7 @@ function plot_histos(bsize_steps, nbins_delta, chain_steps, chain_deltas, tuning
     
     
     for histo_index in 1:histo_length
-        label = string(direction_algos[histo_index])
+        label = chop(string(direction_algos[histo_index]), head=0, tail=0)
 
         #steps
         #histo_plot = plot!(chain_steps[histo_index], xlabel="Steps", ylabel="Counts", subplot=(2*histo_index-1), st=:histogram, title=label, bins=b_range)
@@ -468,11 +468,11 @@ end
 include("../ecmc.jl")
 
 
-nchains = 1000 # to average over
+nchains = 100 # to average over
 bucketsize_for_steps = 200
 nbins_delta = 40
 
-likelihood, prior = Funnel()
+likelihood, prior = Funnel(64)
 tuning = MFPSTuner(max_n_steps=3*10^4, adaption_scheme=GoogleAdaption())
 #average_steps, steps_per_tuning, n_notconverged, deltas_per_tuning = calculate_steps(100, likelihood, prior, tuning, RefreshDirection()) # for one test
 direction_algos = [RefreshDirection(), ReverseDirection(), ReflectDirection(), StochasticReflectDirection()]
@@ -485,4 +485,4 @@ av_steps
 n_notconverged
 percent_notconverged = n_notconverged/nchains
 
-png(string(string(tuning.adaption_scheme), ", 16D-Funnel, over $nchains tunings, notconverged = $n_notconverged"))
+png(string(string(tuning.adaption_scheme), " new",", 64D-Funnel, over $nchains tunings, notconverged = $n_notconverged"))
