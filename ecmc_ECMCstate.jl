@@ -138,9 +138,12 @@ See also [`ECMCState`](@ref).
     mfps_arr::Vector{Int64} = []
     delta_arr::Vector{Float64} = []
     acc_C::Vector{Float64} = [] 
+
+    step_var::Float64 = 1. # convergence can write to here and then ecmc_states can get the tuned version of step_var
+
     γ::Float64 = 0 # for google tuning
     step_acc::Bool = 0 # for google tuning # was this step accepted? y : n
-    α = 0.1
+    α = 0.1 # for new google tuning
     α_acc_err = 1 # for new google tuning
 
     params::Vector{Float64} = [] # for optimizing the naive adaption (and could be used for optimizing α in google tuning etc)

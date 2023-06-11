@@ -132,6 +132,13 @@ function _ecmc_sample(
         samples[i] = _run_ecmc!(ecmc_state, density, algorithm)
     end
 
+    #burnin
+    if algorithm.nburnin < algorithm.nsamples
+        samples = samples[algorithm.nburnin+1:end]
+    else
+        println("burnin > samples in a chain! So nothing got burned.") # TODO give error before or have BAT do it
+    end
+
     return samples
 end
 
@@ -330,6 +337,8 @@ function check_tuning_convergence!(
     #tuned_algorithm = reconstruct(algorithm, step_amplitude=mean_delta)
 
     ecmc_tuner_state.tuned_delta = mean_delta
+    ecmc_tuner_state.step_var = 0.1*mean_delta # or something with std(delta_arr)
+
 
     enough_steps = ecmc_tuner_state.n_steps > 0.5*10^4
     enough_steps = true # true, if no minimum steps needed

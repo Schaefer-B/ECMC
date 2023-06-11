@@ -193,15 +193,15 @@ include("../examples/tuning_with_optim.jl")
 
 algorithm = ECMCSampler(
     trafo = PriorToUniform(),
-    nsamples=0.1*10^5,
-    nburnin = 0,
+    nsamples= 1*10^5,
+    nburnin = 10^4,
     nchains = 2,
     chain_length=5, 
     remaining_jumps_before_refresh=50,
     step_amplitude=10^-4,
     factorized = false,
     #step_var=1.5*0.04,
-    direction_change = RefreshDirection(),
+    direction_change = ReflectDirection(),
     tuning = MFPSTuner(adaption_scheme=GoogleAdaption(), max_n_steps = 2*10^4),
 )
 
@@ -209,8 +209,30 @@ algorithm = ECMCSampler(
 sample = bat_sample(posterior, algorithm);
 samples = sample.result
 
+
 tuning_state = sample.ecmc_tuning_state[1] # tuning state for chain 1
 
+plot(samples)
+
+
+#ESS test
+ESS = 0
+eff_ss_result = bat_eff_sample_size(samples).result
+for ess_per_dim in bat_eff_sample_size(samples).result.a
+    ESS += ess_per_dim 
+end
+ESS
+
+
+#comparison to mcmc
+mcmc_samples = bat_sample(posterior, MCMCSampling(mcalg = MetropolisHastings(), nsteps = 10^5, nchains = 2)).result
+
+plot(mcmc_samples)
+mcmc_ESS = 0
+for ess_per_dim in bat_eff_sample_size(mcmc_samples).result.a
+    mcmc_ESS += ess_per_dim 
+end
+mcmc_ESS
 
 #---------Ben Plot-----------
 tuner_plot = idontwannacalliteverytime("Naive Tuner with suppression", false)
