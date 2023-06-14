@@ -11,78 +11,11 @@ using BenchmarkTools
 gr(size=(1.3*850, 1.3*600), thickness_scaling = 1.5)
 
 
-
-#---- Multivariate Gaussian --------------------------
-function MVGauss(dimension=16)
-    D = dimension
-    μ = fill(0.0, D)
-    σ = collect(range(1, 10, D))
-    truth = rand(MvNormal(μ, σ), Int(1e6))
-
-    likelihood = let D = D, μ = μ, σ = σ
-        logfuncdensity(params -> begin
-
-            return logpdf(MvNormal(μ, σ), params.a)
-        end)
-    end 
-
-
-    prior = BAT.NamedTupleDist(
-        a = Uniform.(-5*σ, 5*σ)
-    )
-    return likelihood, prior
-end
-
-#---- Funnel  --------------------------
-function Funnel(dimension = 16)
-    D = dimension
-    truth = rand(BAT.FunnelDistribution(a=0.5, b=1., n=D), Int(1e6))
-
-    likelihood = let D = D
-        logfuncdensity(params -> begin
-
-        return logpdf(BAT.FunnelDistribution(a=0.5, b=1., n=D), params.a)
-        end)
-    end 
-
-    σ = 10*ones(D)
-    prior = BAT.NamedTupleDist(
-        a = Uniform.(-σ, σ)
-    )
-    return likelihood, prior
-end
-
-#-------------------------------------------
-function Mixture()
-    likelihood = logfuncdensity(params -> begin
-
-        r1 = logpdf.(
-        MixtureModel(Normal[
-        Normal(-10.0, 1.2),
-        Normal(0.0, 1.8),
-        Normal(10.0, 2.5)], [0.1, 0.3, 0.6]), params.a[1])
-
-        r2 = logpdf.(
-        MixtureModel(Normal[
-        Normal(-5.0, 2.2),
-        Normal(5.0, 1.5)], [0.3, 0.7]), params.a[2])
-
-        r3 = logpdf.(Normal(2.0, 1.5), params.a[3])
-
-        return r1+r2+r3
-    end)
-
-    prior = BAT.NamedTupleDist(
-        a = [-20..20, -20.0..20.0, -10..10]
-    )
-
-    return likelihood, prior
-end
-
+include("test_distributions.jl")
 
 #-----------------
 
-likelihood, prior = Funnel()
+likelihood, prior = mvnormal(32)
 posterior = PosteriorMeasure(likelihood, prior);
 logdensityof(posterior, rand(prior))
 
@@ -92,14 +25,6 @@ logdensityof(posterior, rand(prior))
 #for plotting
 function idontwannacalliteverytime(title = "Test", everyaxis=false)
 
-    #bucket_width = bucket
-    #k_max = Int(floor(length(tuning_state.acc_C)/bucket_width))
-    #for k in 1:k_max
-    #    for i in (1+(k-1)*bucket_width):(k*bucket_width)
-    #        acc = (tuning_state.acc_C[k*bucket_width]*k*bucket_width - tuning_state.acc_C[(1+(k-1)*bucket_width)]*(1+(k-1)*bucket_width))/(bucket_width-1)
-    #        push!(new_acc_C, acc)
-    #    end
-    #end
 
     acc_C = tuning_state.acc_C
     n_steps = tuning_state.n_steps
@@ -152,7 +77,7 @@ function idontwannacalliteverytime(title = "Test", everyaxis=false)
     if everyaxis == true
         plot!(xlabel="Steps")
     end
-
+    
 
     start_step = 0
     for s in current_std_arr
@@ -179,9 +104,9 @@ end
 
 function save_plot(title)
     idontwannacalliteverytime(title, false)
-    png(string(title, "1"))
+    png(string("plots/", title, " wo steps"))
     idontwannacalliteverytime(title, true)
-    png(string(title, "2"))
+    png(string("plots/", title, " w steps"))
 end
 
 
@@ -193,41 +118,42 @@ include("../examples/tuning_with_optim.jl")
 
 algorithm = ECMCSampler(
     trafo = PriorToUniform(),
-    nsamples= 1*10^5,
-    nburnin = 10^4,
+    nsamples= 10^2,
+    nburnin = 0,
     nchains = 2,
     chain_length=5, 
     remaining_jumps_before_refresh=50,
-    step_amplitude=10^-4,
+    step_amplitude=10^-2,
     factorized = false,
-    #step_var=1.5*0.04,
-    direction_change = ReflectDirection(),
+    step_var=0.2,
+    variation_type = UniformVariation(),
+    direction_change = RefreshDirection(),
     tuning = MFPSTuner(adaption_scheme=GoogleAdaption(), max_n_steps = 2*10^4),
 )
 
 
 sample = bat_sample(posterior, algorithm);
-samples = sample.result
-
+samples = sample.result;
 
 tuning_state = sample.ecmc_tuning_state[1] # tuning state for chain 1
+state = sample.ecmc_state[1]
 
 plot(samples)
-
 
 #ESS test
 ESS = 0
 eff_ss_result = bat_eff_sample_size(samples).result
+eff_mean = mean(eff_ss_result.a)
 for ess_per_dim in bat_eff_sample_size(samples).result.a
     ESS += ess_per_dim 
 end
 ESS
 
 
-#comparison to mcmc
-mcmc_samples = bat_sample(posterior, MCMCSampling(mcalg = MetropolisHastings(), nsteps = 10^5, nchains = 2)).result
 
-plot(mcmc_samples)
+
+
+
 mcmc_ESS = 0
 for ess_per_dim in bat_eff_sample_size(mcmc_samples).result.a
     mcmc_ESS += ess_per_dim 
@@ -235,18 +161,51 @@ end
 mcmc_ESS
 
 #---------Ben Plot-----------
-tuner_plot = idontwannacalliteverytime("Naive Tuner with suppression", false)
-#display(tuner_plot)
+tuner_plot = idontwannacalliteverytime("New Google adaption", true)
 
 tuning_state.tuned_delta
-length(tuning_state.delta_arr)
-std(tuning_state.delta_arr[end-Int(floor(tuning_state.n_steps*0.3)):end])/tuning_state.tuned_delta
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
 #save 2 plots with title and legends false/true
-save_plot("Naive Tuner with suppression")
+save_plot("Google Tuner")
 
+
+#comparison to mcmc
+mcmc_samples = bat_sample(posterior, MCMCSampling(mcalg = MetropolisHastings(), nsteps = 10^5, nchains = 2)).result
+plot(mcmc_samples)
+#------------------------------------------
+#------------------------------------------
 #------------------------------------------
 #BAT-plot distribution:
 plot(

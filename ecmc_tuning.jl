@@ -25,8 +25,8 @@ export MFPSTuner
 @with_kw struct AcceptanceRatioConvergence <: ECMCTuningConvergenceCheck
     target_acc::Float64 = 0.9 #TODO
     Npercent::Float64 = 0.3 # percentage of steps to account for in acceptance
-    standard_deviation::Float64 = 0.001
-    rel_dif_mean::Float64 = 0.01 
+    standard_deviation::Float64 = 0.003
+    abs_dif_mean::Float64 = 0.002
 end
 
 
@@ -136,7 +136,9 @@ end
 
 
 
-struct GoogleAdaption <: ECMCStepSizeAdaptor end
+@with_kw struct GoogleAdaption <: ECMCStepSizeAdaptor
+    automatic_adjusting::Bool = true
+end
 export GoogleAdaption
 
 function adapt_delta(adaption_scheme::GoogleAdaption, delta, ecmc_tuner_state, tuner::MFPSTuner)
@@ -147,9 +149,8 @@ function adapt_delta(adaption_scheme::GoogleAdaption, delta, ecmc_tuner_state, t
 
     γ = ecmc_tuner_state.γ
     α = ecmc_tuner_state.α
-    new = true
 
-    if new == true
+    if adaption_scheme.automatic_adjusting == true
         min_α = 0.001
         max_α = 1
         change = 0.99

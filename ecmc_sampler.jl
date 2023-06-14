@@ -305,7 +305,7 @@ function check_tuning_convergence!(
     mean_acc_C = (acc_C[end] - acc_C[end-N])/N
 
     #mean_has_converged = abs(mean_acc_C - target_acc) < tuning_convergence_check.rel_dif_mean #* target_acc 
-    mean_has_converged = abs(mean_acc_C - target_acc) < tuning_convergence_check.rel_dif_mean*0.2 #* target_acc 
+    mean_has_converged = abs(mean_acc_C - target_acc) < tuning_convergence_check.abs_dif_mean
 
 
 
@@ -317,7 +317,7 @@ function check_tuning_convergence!(
             c_mean = (acc_C[end-i+1] - acc_C[end-N-i+1])/N
             push!(current_acc_arr, c_mean)
         end
-        standard_deviation_is_low_enough = std(current_acc_arr) < 0.003 #tuning_convergence_check.standard_deviation*2
+        standard_deviation_is_low_enough = std(current_acc_arr) < tuning_convergence_check.standard_deviation
     else
         standard_deviation_is_low_enough = false
     end
