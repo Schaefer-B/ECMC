@@ -50,6 +50,9 @@ export StochasticReflectDirection
 
 
 
+
+
+
 function _change_direction(
     direction_type::ReverseDirection,
     C::Vector{Float64},
@@ -87,7 +90,7 @@ function get_p_accept(density, delta, C, proposed_C, old_lift_vector, new_lift_v
     prob_proposed_C = 1.0 .- exp.(-_energy_difference(density, C - new_lift_vector * delta, C))
 
     return (prob_current_C, prob_proposed_C)
-end 
+end
 
 
 
@@ -142,4 +145,44 @@ function _change_direction(
     acceptance_probability  = minimum([1.0, (proposal_current* prob_proposed_C) / (proposal_lift * prob_current_C)])
 
     rand(Uniform(0, 1)) <= acceptance_probability ? (return new_lift_vector) : (return -old_lift_vector)
+end
+
+
+
+
+#---------BENS TESTS--------------
+
+struct TestDirection <: AbstractECMCDirection end
+export TestDirection
+
+
+
+
+function _change_direction(
+    direction_type::TestDirection,
+    C::Vector{Float64},
+    delta::Float64,
+    lift_vector::Vector{Float64},
+    proposed_C::Vector{Float64},
+    density::AbstractMeasureOrDensity
+)
+    D = length(C)
+    current_lift_vector = lift_vector
+    n_normal = - normalize(_energy_gradient(density, C))
+
+    
+    parallel = dot(current_lift_vector, n_normal) * n_normal
+    refreshed = rand(Normal(0., 1.), D)
+    perpendicular = normalize(refreshed - dot(refreshed, n_normal) * n_normal)
+    a = sqrt(1. - dot(parallel, parallel))
+
+    proposed_lift_vector = a * perpendicular + parallel
+
+
+    
+    prob_current_C, prob_proposed_C = get_p_accept(density, delta, C, proposed_C, current_lift_vector, proposed_lift_vector)
+
+    acceptance_probability = minimum([1.0, prob_proposed_C / prob_current_C])
+
+    rand(Uniform(0, 1)) <= acceptance_probability ? (return proposed_lift_vector) : (return -current_lift_vector)
 end

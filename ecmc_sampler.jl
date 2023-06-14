@@ -165,7 +165,8 @@ function _run_ecmc!(
         if u <= p_accept
             C = proposed_C
             update_ecmc_state_accept!(ecmc_state, delta)
-            delta = tune_delta(algorithm.tuning, delta, ecmc_state) # added because of google tuning
+            delta = tune_delta(algorithm.tuning, delta, ecmc_state)
+
         else
             old_lift_vector = lift_vector
             lift_vector = _change_direction(algorithm.direction_change, C, delta, lift_vector, proposed_C, density)
@@ -183,7 +184,7 @@ function _run_ecmc!(
         if remaining_jumps_before_refresh <= 0 
             remaining_jumps_before_refresh = algorithm.remaining_jumps_before_refresh
             lift_vector = refresh_lift_vector(D)
-            delta = refresh_delta(ecmc_state)
+            delta = refresh_delta(ecmc_state.step_amplitude, ecmc_state.step_var, ecmc_state.delta, ecmc_state.variation_type)
         end
     end
 
@@ -235,17 +236,7 @@ function tune_delta(tuning::MFPSTuner, delta::Float64, ecmc_state::ECMCTunerStat
 end 
 
 
-function refresh_delta(ecmc_state::ECMCTunerState) 
-    return ecmc_state.delta
-end
 
-function refresh_delta(ecmc_state::ECMCState)
-    step_amplitude = ecmc_state.step_amplitude
-    step_var = ecmc_state.step_var
-    #return rand(Normal(step_amplitude, step_var*step_amplitude))
-    u = rand(Uniform(1-step_var, 1+step_var))
-    return u * step_amplitude
-end
 
 
 function refresh_lift_vector(D)
@@ -334,11 +325,10 @@ function check_tuning_convergence!(
     #------
 
     mean_delta = mean(ecmc_tuner_state.delta_arr[end-N:end])
-    #tuned_algorithm = reconstruct(algorithm, step_amplitude=mean_delta)
+    #std_delta = std(ecmc_tuner_state.delta_arr[end-N:end]/mean_delta)
 
     ecmc_tuner_state.tuned_delta = mean_delta
-    ecmc_tuner_state.step_var = 0.1*mean_delta # or something with std(delta_arr)
-
+    #ecmc_tuner_state.step_var = std_delta
 
     enough_steps = ecmc_tuner_state.n_steps > 0.5*10^4
     enough_steps = true # true, if no minimum steps needed

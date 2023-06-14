@@ -12,5 +12,7 @@ abstract type AbstractECMCState end
 
 include("ecmc_direction_changes.jl")
 include("ecmc_tuning.jl")
+include("ecmc_refresh_delta.jl")
 include("ecmc_ECMCstate.jl")
+
 include("ecmc_sampler.jl")

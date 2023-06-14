@@ -10,8 +10,10 @@ Holds user specified information and default starting parameters regarding the s
 - `nchains::Integer`: the number of used chains.
 - `chain_length::Integer`: the number of jumps before a sample is returned.
 - `step_amplitude::Float64`: the starting value for the length of one jump.
+- `step_var::Float64`: the amount of variation in the jump length multiplier.
 - `remaining_jumps_before_refresh::Integer`: the remaining jumps before a refresh of the direction vector happens.
 - `direciton_change::AbstractECMCDirection`: the specified direction change algorithm.
+- `variation_type::AbstractStepAmplitudeVariation`: the specified algorithm to variate delta around the step_amplitude.
 - `tuning::ECMCTuner`: the specified tuning algorithm.
 - `factorized::Bool`: specifies if the density should be used in a factorized state.
 """
@@ -22,9 +24,10 @@ Holds user specified information and default starting parameters regarding the s
     nchains::Int = 4
     chain_length::Int = 5 #remaining_jumps_before_sample
     step_amplitude::Float64 = 0.5
-    #step_var::Float64 = 0.5
+    step_var::Float64 = 0.5
     remaining_jumps_before_refresh::Int = 50
     direction_change::AbstractECMCDirection = ReverseDirection()
+    variation_type::AbstractStepAmplitudeVariation = UniformVariation()
     tuning::ECMCTuner = MFPSTuner(target_mfps=5)
     factorized = false #TODO
 end
@@ -42,6 +45,7 @@ Holds information about the current state of sampling.
 - `delta::Float64`: the current value for the multiplier of the jump length.
 - `step_amplitude::Float64`: the default value for the multiplier of the jump length.
 - `step_var::Float64`: the amount of variation in the jump length multiplier.
+- `variation_type::AbstractStepAmplitudeVariation`: the specified algorithm to variate delta around the step_amplitude.
 - `remaining_jumps_before_refresh::Int64`: the remaining jumps before a refresh of the direction vector happens.
 - `n_steps::Int64=0`: the current number of steps taken.
 - `n_acc::Int64=0`: the current number of accepted new sample proposals.
@@ -57,7 +61,8 @@ See also [`ECMCState(::AbstractMeasureOrDensity, ::ECMCSampler)`](@ref).
     lift_vector::Vector{Float64} = []
     delta::Float64 = 1.
     step_amplitude::Float64 = 1.
-    step_var::Float64 = 1.
+    step_var::Float64 = 0.1
+    variation_type::AbstractStepAmplitudeVariation = UniformVariation()
     remaining_jumps_before_refresh::Int64 = 1
     n_steps::Int64 = 0
     n_acc::Int64 = 0
@@ -139,7 +144,9 @@ See also [`ECMCState`](@ref).
     delta_arr::Vector{Float64} = []
     acc_C::Vector{Float64} = [] 
 
-    step_var::Float64 = 1. # convergence can write to here and then ecmc_states can get the tuned version of step_var
+    step_amplitude::Float64 = 1. # so refresh_delta can be in a seperate file (although you could change the tuning to only use step_amplitude instead of delta and then not have one dead field)
+    step_var::Float64 = 0.1 # convergence can write to here and then ecmc_states can get the tuned version of step_var
+    variation_type::AbstractStepAmplitudeVariation = NoVariation()
 
     γ::Float64 = 0 # for google tuning
     step_acc::Bool = 0 # for google tuning # was this step accepted? y : n
@@ -175,8 +182,9 @@ function ECMCTunerState(density::AbstractMeasureOrDensity, algorithm::ECMCSample
         delta = delta, 
         tuned_delta = delta, 
         remaining_jumps_before_refresh = algorithm.remaining_jumps_before_refresh, 
-        delta_arr = [delta, ]
-        , params = [0.98,
+        delta_arr = [delta, ],
+        step_var = algorithm.step_var,
+        params = [0.98,
         0.207210542888343,
         0.0732514723260891,
         0.4934509024569294,
@@ -203,7 +211,8 @@ function ECMCState(ecmc_tuner_state::ECMCTunerState, algorithm::ECMCSampler)
         lift_vector = ecmc_tuner_state.lift_vector, 
         delta = ecmc_tuner_state.tuned_delta, 
         step_amplitude = ecmc_tuner_state.tuned_delta, 
-        step_var = 0.1*ecmc_tuner_state.tuned_delta, 
+        step_var = ecmc_tuner_state.step_var,
+        variation_type = algorithm.variation_type,
         remaining_jumps_before_refresh = algorithm.remaining_jumps_before_refresh
         )
 end 
@@ -222,7 +231,8 @@ function ECMCState(ecmc_tuner_states::Vector{ECMCTunerState}, algorithm::ECMCSam
         lift_vector = e.lift_vector, 
         delta = e.tuned_delta, 
         step_amplitude = e.tuned_delta, 
-        step_var = 0.1*e.tuned_delta, 
+        step_var = e.step_var, 
+        variation_type = algorithm.variation_type,
         remaining_jumps_before_refresh = algorithm.remaining_jumps_before_refresh
         ) for e in ecmc_tuner_states]
 end 
