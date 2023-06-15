@@ -20,13 +20,13 @@ Holds user specified information and default starting parameters regarding the s
 @with_kw struct ECMCSampler{TR<:AbstractTransformTarget} <: AbstractSamplingAlgorithm
     trafo::TR = NoDensityTransform()
     nsamples::Int = 10^4
-    nburnin::Int = Int(floor(0.1*nsamples)) # TODO ??
+    nburnin::Int = 0
     nchains::Int = 4
     chain_length::Int = 5 #remaining_jumps_before_sample
-    step_amplitude::Float64 = 0.5
-    step_var::Float64 = 0.5
+    step_amplitude::Float64 = 1.
+    step_var::Float64 = 0.2
     remaining_jumps_before_refresh::Int = 50
-    direction_change::AbstractECMCDirection = ReverseDirection()
+    direction_change::AbstractECMCDirection = ReflectDirection()
     variation_type::AbstractStepAmplitudeVariation = UniformVariation()
     tuning::ECMCTuner = MFPSTuner(target_mfps=5)
     factorized = false #TODO
@@ -58,6 +58,7 @@ See also [`ECMCState(::AbstractMeasureOrDensity, ::ECMCSampler)`](@ref).
 """
 @with_kw mutable struct ECMCState <: AbstractECMCState
     C::Vector{Float64} = []
+    current_energy::Float64 = 0
     lift_vector::Vector{Float64} = []
     delta::Float64 = 1.
     step_amplitude::Float64 = 1.
@@ -91,6 +92,7 @@ function ECMCState(density::AbstractMeasureOrDensity, algorithm::ECMCSampler)
 
     ecmc_states = [ECMCState(
         C = initial_samples[i], 
+        current_energy = -logdensityof(density, initial_samples[i]),
         lift_vector = lift_vectors[i], 
         delta = algorithm.step_amplitude, 
         step_amplitude = algorithm.step_amplitude, 
@@ -130,6 +132,7 @@ See also [`ECMCState`](@ref).
 """
 @with_kw mutable struct ECMCTunerState <: AbstractECMCState # for tuning: includes additional arrays for mfps, delta, accepted C
     C::Vector{Float64} = []
+    current_energy::Float64 = 0
     lift_vector::Vector{Float64} = []
     delta::Float64 = 1.
     tuned_delta::Float64 = 1. 
@@ -178,6 +181,7 @@ function ECMCTunerState(density::AbstractMeasureOrDensity, algorithm::ECMCSample
 
     ecmc_tuner_states = [ECMCTunerState(
         C = initial_samples[i], 
+        current_energy = -logdensityof(density, initial_samples[i]),
         lift_vector = lift_vectors[i], 
         delta = delta, 
         tuned_delta = delta, 
@@ -208,6 +212,7 @@ function ECMCState(ecmc_tuner_state::ECMCTunerState, algorithm::ECMCSampler)
 #TODO: nchains
     return ECMCState(
         C = ecmc_tuner_state.C, 
+        current_energy = ecmc_tuner_state.current_energy,
         lift_vector = ecmc_tuner_state.lift_vector, 
         delta = ecmc_tuner_state.tuned_delta, 
         step_amplitude = ecmc_tuner_state.tuned_delta, 
@@ -228,6 +233,7 @@ See also [`ECMCState(::ECMCTunerState, ::ECMCSampler)`](@ref), [`ECMCState`](@re
 function ECMCState(ecmc_tuner_states::Vector{ECMCTunerState}, algorithm::ECMCSampler)
     return [ECMCState(
         C = e.C, 
+        current_energy = e.current_energy,
         lift_vector = e.lift_vector, 
         delta = e.tuned_delta, 
         step_amplitude = e.tuned_delta, 

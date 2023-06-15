@@ -128,8 +128,9 @@ algorithm = ECMCSampler(
     step_var=0.2,
     variation_type = UniformVariation(),
     direction_change = RefreshDirection(),
-    tuning = MFPSTuner(adaption_scheme=GoogleAdaption(), max_n_steps = 2*10^4),
+    tuning = MFPSTuner(adaption_scheme=GoogleAdaption(automatic_adjusting=true), max_n_steps = 2*10^4),
 )
+
 
 
 sample = bat_sample(posterior, algorithm);
@@ -150,20 +151,15 @@ end
 ESS
 
 
-
-
-
-
-mcmc_ESS = 0
-for ess_per_dim in bat_eff_sample_size(mcmc_samples).result.a
-    mcmc_ESS += ess_per_dim 
-end
-mcmc_ESS
-
 #---------Ben Plot-----------
 tuner_plot = idontwannacalliteverytime("New Google adaption", true)
 
 tuning_state.tuned_delta
+
+
+
+
+
 
 
 
@@ -204,6 +200,12 @@ save_plot("Google Tuner")
 #comparison to mcmc
 mcmc_samples = bat_sample(posterior, MCMCSampling(mcalg = MetropolisHastings(), nsteps = 10^5, nchains = 2)).result
 plot(mcmc_samples)
+
+mcmc_ESS = 0
+for ess_per_dim in bat_eff_sample_size(mcmc_samples).result.a
+    mcmc_ESS += ess_per_dim 
+end
+mcmc_ESS
 #------------------------------------------
 #------------------------------------------
 #------------------------------------------

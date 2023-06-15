@@ -150,7 +150,7 @@ function _run_ecmc!(
     algorithm::ECMCSampler,
 )
     D = totalndof(density)
-    @unpack C, lift_vector, delta, remaining_jumps_before_refresh = ecmc_state
+    @unpack C, current_energy, lift_vector, delta, remaining_jumps_before_refresh = ecmc_state
     remaining_jumps_before_sample = algorithm.chain_length
 
     while remaining_jumps_before_sample > 0
@@ -159,17 +159,20 @@ function _run_ecmc!(
         remaining_jumps_before_refresh -= 1
 
         proposed_C = C + lift_vector * delta
-        p_accept = exp.(-_energy_difference(density, proposed_C, C))
+        proposed_C_energy = _energy_function(density, proposed_C) 
+
+        p_accept = exp.(-(proposed_C_energy - current_energy))
     
         u = rand(Uniform(0.0, 1.0))
         if u <= p_accept
             C = proposed_C
+            current_energy = proposed_C_energy
             update_ecmc_state_accept!(ecmc_state, delta)
             delta = tune_delta(algorithm.tuning, delta, ecmc_state)
 
         else
             old_lift_vector = lift_vector
-            lift_vector = _change_direction(algorithm.direction_change, C, delta, lift_vector, proposed_C, density)
+            lift_vector = _change_direction(algorithm.direction_change, C, current_energy, delta, lift_vector, proposed_C, density)
             
             update_ecmc_state_reject!(ecmc_state, delta)
             
@@ -188,7 +191,7 @@ function _run_ecmc!(
         end
     end
 
-    @pack! ecmc_state = C, lift_vector, delta, remaining_jumps_before_refresh  
+    @pack! ecmc_state = C, current_energy, lift_vector, delta, remaining_jumps_before_refresh  
 
     return C
 end
@@ -245,7 +248,7 @@ function refresh_lift_vector(D)
 end
 
 
-# "Converting" the posterior distribution to an energy and getting the gradien
+# "Converting" the posterior distribution to an energy and getting the gradient
 _energy_function(density::AbstractMeasureOrDensity, x) = -logdensityof(density, x)
 
 function _energy_gradient(density::AbstractMeasureOrDensity, x)
@@ -256,8 +259,8 @@ end
 
 function _energy_difference(
     density::AbstractMeasureOrDensity, 
-    new_x, 
-    old_x
+    new_x::Vector{Float64}, 
+    old_x::Vector{Float64}
 ) 
     new_energy = _energy_function(density, new_x) 
     old_energy = _energy_function(density, old_x)
@@ -265,6 +268,16 @@ function _energy_difference(
     return (new_energy - old_energy)
 end
 
+
+function _energy_difference(
+    density::AbstractMeasureOrDensity, 
+    new_x::Vector{Float64}, 
+    current_energy::Float64
+) 
+    new_energy = _energy_function(density, new_x) 
+
+    return (new_energy - current_energy)
+end
 
 #----- convert samples ----------------------------------------------
 function  convert_to_BAT_samples(samples, density)

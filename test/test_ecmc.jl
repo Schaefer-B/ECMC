@@ -52,6 +52,7 @@ density_notrafo = convert(AbstractMeasureOrDensity, posterior)
 density, trafo = transform_and_unshape(algorithm.trafo, density_notrafo)
 
 C = trafo(rand(prior))
+current_energy = _energy_function(density, C)
 delta = 0.1
 current_lift_vector = normalize(rand(Uniform(-1, 1), D))
 proposed_C = C + delta * current_lift_vector
@@ -70,7 +71,7 @@ Random.seed!(25)
 
 flip_direction = _change_direction(
     ReverseDirection(),
-    C, delta, current_lift_vector, proposed_C, density,
+    C, current_energy, delta, current_lift_vector, proposed_C, density,
 )
 
 @test flip_direction == -current_lift_vector
@@ -79,7 +80,7 @@ flip_direction = _change_direction(
 
 fullref_update_direction = _change_direction(
     RefreshDirection(),
-    C, delta, current_lift_vector, proposed_C, density,
+    C, current_energy, delta, current_lift_vector, proposed_C, density,
 )
 
 @test fullref_update_direction == [-0.2662094336712443, 0.5649491805767868, -0.4399806715753523, -0.6452766611540778]
@@ -88,7 +89,7 @@ fullref_update_direction = _change_direction(
 
 reflect_direction = _change_direction(
     ReflectDirection(),
-    C, delta, current_lift_vector, proposed_C, density,
+    C, current_energy, delta, current_lift_vector, proposed_C, density,
 )
 
 @test isapprox(reflect_direction, [-0.23608589286146675, -0.19139932332469628, 0.82892242886362, 0.4695927567046678], atol=1e-15)
@@ -97,7 +98,7 @@ reflect_direction = _change_direction(
 Random.seed!(360)
 update_direction = _change_direction(
     StochasticReflectDirection(),
-    C, delta, current_lift_vector, proposed_C, density,
+    C, current_energy, delta, current_lift_vector, proposed_C, density,
 )
 
 @test isapprox(update_direction, [-0.126265499510203, -0.20892331575497952, 0.9434747870406662, 0.2241949999129186], atol=1e-15)
@@ -227,6 +228,7 @@ function _initialize_ecmc_state(algorithm, density, dimension=8, set_C_to_origin
 
         initialized_state = ECMCState(
             C = fill(0, D), 
+            current_energy = -logdensityof(density, fill(0, D)),
             lift_vector = fill(1/sqrt(D), D), 
             delta = algorithm.step_amplitude, 
             step_amplitude = algorithm.step_amplitude, 
@@ -255,12 +257,12 @@ algorithms = [
     ECMCSampler(
         trafo = PriorToUniform(),
         nsamples = 10^5,
-        nburnin = 10^3,
+        nburnin = 0,
         nchains = 1,
         chain_length = 5, #jumps_before_sample
         remaining_jumps_before_refresh=50,
         step_amplitude = 0.04,
-        #step_var = 0.01,
+        step_var = 0.1,
         direction_change = algo,
         tuning = MFPSTuner(),
         factorized = false

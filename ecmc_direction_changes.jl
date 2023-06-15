@@ -51,11 +51,23 @@ export StochasticReflectDirection
 
 
 
+function _accepted_lift_vector(density, C, current_energy, delta, proposed_lift_vector, current_lift_vector)
+    
+
+    prob_current_C = 1.0 .- exp.(-_energy_difference(density, C + current_lift_vector * delta, current_energy))
+    prob_proposed_C = 1.0 .- exp.(-_energy_difference(density, C - proposed_lift_vector * delta, current_energy))
+    acceptance_probability = minimum([1.0, prob_proposed_C[1] / prob_current_C[1]])
+
+    rand(Uniform(0, 1)) <= acceptance_probability ? (return proposed_lift_vector) : (return -current_lift_vector)
+end
+
+
 
 
 function _change_direction(
     direction_type::ReverseDirection,
     C::Vector{Float64},
+    current_energy::Float64,
     delta::Float64,
     lift_vector::Vector{Float64},
     proposed_C::Vector{Float64},
@@ -66,9 +78,11 @@ end
 
 
 
+
 function _change_direction(
     direction_type::RefreshDirection,
     C::Vector{Float64},
+    current_energy::Float64,
     delta::Float64,
     lift_vector::Vector{Float64},
     proposed_C::Vector{Float64},
@@ -79,24 +93,17 @@ function _change_direction(
     D = length(current_lift_vector)
     proposed_lift_vector = refresh_lift_vector(D)
 
-    prob_current_C, prob_proposed_C = get_p_accept(density, delta, C, proposed_C, current_lift_vector, proposed_lift_vector)
-    acceptance_probability = minimum([1.0, prob_proposed_C[1] / prob_current_C[1]])
-
-    rand(Uniform(0, 1)) <= acceptance_probability ? (return proposed_lift_vector) : (return -current_lift_vector)
+    return _accepted_lift_vector(density, C, current_energy, delta, proposed_lift_vector, current_lift_vector)
 end
 
-function get_p_accept(density, delta, C, proposed_C, old_lift_vector, new_lift_vector)
-    prob_current_C = 1.0 .- exp.(-_energy_difference(density, C + old_lift_vector * delta, C))
-    prob_proposed_C = 1.0 .- exp.(-_energy_difference(density, C - new_lift_vector * delta, C))
 
-    return (prob_current_C, prob_proposed_C)
-end
 
 
 
 function _change_direction(
     direction_type::ReflectDirection,
     C::Vector{Float64},
+    current_energy::Float64,
     delta::Float64,
     lift_vector::Vector{Float64},
     proposed_C::Vector{Float64},
@@ -107,12 +114,10 @@ function _change_direction(
 
     proposed_lift_vector = current_lift_vector - 2 * dot(current_lift_vector, n_normal) * n_normal
 
-    prob_current_C, prob_proposed_C = get_p_accept(density, delta, C, proposed_C, current_lift_vector, proposed_lift_vector)
-
-    acceptance_probability = minimum([1.0, prob_proposed_C / prob_current_C])
-
-    rand(Uniform(0, 1)) <= acceptance_probability ? (return proposed_lift_vector) : (return -current_lift_vector)
+    return _accepted_lift_vector(density, C, current_energy, delta, proposed_lift_vector, current_lift_vector)
 end
+
+
 
 
 # https://arxiv.org/pdf/1702.08397v1.pdf  (Eq. 23)
@@ -120,6 +125,7 @@ end
 function _change_direction(
     direction_type::StochasticReflectDirection,
     C::Vector{Float64},
+    current_energy::Float64,
     delta::Float64,
     lift_vector::Vector{Float64},
     proposed_C::Vector{Float64},
@@ -137,7 +143,8 @@ function _change_direction(
     new_lift_vector = sqrt(1. - parallel_component^2) * n_perp + parallel_component * n_normal
 
     old_lift_vector = current_lift_vector
-    prob_current_C, prob_proposed_C = get_p_accept(density, delta, C, proposed_C, old_lift_vector, new_lift_vector)
+    prob_current_C = 1.0 .- exp.(-_energy_difference(density, C + old_lift_vector * delta, C))
+    prob_proposed_C = 1.0 .- exp.(-_energy_difference(density, C - new_lift_vector * delta, C))
 
     proposal_lift = maximum([0., dot(n_normal, -new_lift_vector)])
     proposal_current = maximum([0., dot(n_normal, old_lift_vector)])
@@ -161,6 +168,7 @@ export TestDirection
 function _change_direction(
     direction_type::TestDirection,
     C::Vector{Float64},
+    current_energy::Float64,
     delta::Float64,
     lift_vector::Vector{Float64},
     proposed_C::Vector{Float64},
@@ -179,10 +187,5 @@ function _change_direction(
     proposed_lift_vector = a * perpendicular + parallel
 
 
-    
-    prob_current_C, prob_proposed_C = get_p_accept(density, delta, C, proposed_C, current_lift_vector, proposed_lift_vector)
-
-    acceptance_probability = minimum([1.0, prob_proposed_C / prob_current_C])
-
-    rand(Uniform(0, 1)) <= acceptance_probability ? (return proposed_lift_vector) : (return -current_lift_vector)
+    return _accepted_lift_vector(density, C, current_energy, delta, proposed_lift_vector, current_lift_vector)
 end

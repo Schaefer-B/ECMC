@@ -228,6 +228,7 @@ plot_one_algo(α_arr, mean_steps, std_steps, std_delta_percentage, tuned_deltas,
 
 
 
-bplot = bigplot(30, 40, true)
+bplot = bigplot(4, 10, false)
 
-splot = smallplot()
+splot = smallplot(4, 10, false)
+
