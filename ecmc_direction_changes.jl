@@ -159,10 +159,41 @@ end
 
 #---------BENS TESTS--------------
 
+struct GradientRefreshDirection <: AbstractECMCDirection end
+export GradientRefreshDirection
+
+function _change_direction(
+    direction_type::GradientRefreshDirection,
+    C::Vector{Float64},
+    current_energy::Float64,
+    delta::Float64,
+    lift_vector::Vector{Float64},
+    proposed_C::Vector{Float64},
+    density::AbstractMeasureOrDensity
+)
+    current_lift_vector = lift_vector
+
+    D = length(current_lift_vector)
+    refreshed_vector = refresh_lift_vector(D)
+
+    n_normal = - normalize(_energy_gradient(density, C))
+    n_normal_part = dot(n_normal, refreshed_vector)
+
+    if n_normal_part > 0
+        proposed_lift_vector = refreshed_vector
+    else
+        proposed_lift_vector = refreshed_vector - 2. * n_normal_part * n_normal
+    end
+    
+
+    return _accepted_lift_vector(density, C, current_energy, delta, proposed_lift_vector, current_lift_vector)
+end
+
+
+
+
 struct TestDirection <: AbstractECMCDirection end
 export TestDirection
-
-
 
 
 function _change_direction(

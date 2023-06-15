@@ -15,7 +15,7 @@ include("test_distributions.jl")
 
 #-----------------
 
-likelihood, prior = mvnormal(32)
+likelihood, prior = funnel(32)
 posterior = PosteriorMeasure(likelihood, prior);
 logdensityof(posterior, rand(prior))
 
@@ -118,18 +118,18 @@ include("../examples/tuning_with_optim.jl")
 
 algorithm = ECMCSampler(
     trafo = PriorToUniform(),
-    nsamples= 10^2,
+    nsamples= 3*10^4,
     nburnin = 0,
-    nchains = 2,
-    chain_length=5, 
-    remaining_jumps_before_refresh=50,
+    nchains = 4,
+    chain_length=8, 
+    remaining_jumps_before_refresh=100,
     step_amplitude=10^-2,
     factorized = false,
-    step_var=0.2,
-    variation_type = UniformVariation(),
-    direction_change = RefreshDirection(),
+    step_var=0.1,
+    variation_type = NormalVariation(),
+    direction_change = StochasticReflectDirection(),
     tuning = MFPSTuner(adaption_scheme=GoogleAdaption(automatic_adjusting=true), max_n_steps = 2*10^4),
-)
+);
 
 
 
