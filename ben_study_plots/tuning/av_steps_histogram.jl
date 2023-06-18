@@ -148,7 +148,8 @@ function create_tuner_states(density, algorithm, nchains, params)
     params = abs.(params)
 
     ecmc_tuner_states = [ECMCTunerState(
-        C = initial_samples[i], 
+        C = initial_samples[i],
+        current_energy = -logdensityof(density, initial_samples[i]),
         lift_vector = lift_vectors[i], 
         delta = delta[i], 
         tuned_delta = delta[i], 
@@ -400,7 +401,7 @@ function plot_histos(bsize_steps, nbins_delta, chain_steps, chain_deltas, tuning
 
     gr(size=(1.3*850, 1.3*800), thickness_scaling = 1.5)
 
-    histo_length = length(chain_steps)
+    histo_length = length(chain_steps) # length(chain_steps) == length(direction_algos)
     histo_plot = plot(layout=(histo_length, 2))
     #nchains = length(chain_steps[1])
     #title = string(tuning.adaption_scheme)

@@ -69,7 +69,8 @@ function create_tuner_states(density, algorithm, nchains)
     163.53188824455017]
 
     ecmc_tuner_states = [ECMCTunerState(
-        C = initial_samples[i], 
+        C = initial_samples[i],
+        current_energy = -logdensityof(density, initial_samples[i]),
         lift_vector = lift_vectors[i], 
         delta = delta[i], 
         tuned_delta = delta[i], 

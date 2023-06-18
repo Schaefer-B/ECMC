@@ -15,7 +15,7 @@ include("test_distributions.jl")
 
 #-----------------
 
-likelihood, prior = funnel(32)
+likelihood, prior = mvnormal(16)
 posterior = PosteriorMeasure(likelihood, prior);
 logdensityof(posterior, rand(prior))
 
@@ -118,20 +118,20 @@ include("../examples/tuning_with_optim.jl")
 
 algorithm = ECMCSampler(
     trafo = PriorToUniform(),
-    nsamples= 3*10^4,
+    nsamples= 10*10^4,
     nburnin = 0,
-    nchains = 4,
+    nchains = 2,
     chain_length=8, 
-    remaining_jumps_before_refresh=100,
-    step_amplitude=10^-2,
+    remaining_jumps_before_refresh=50,
+    step_amplitude=0.008,
     factorized = false,
     step_var=0.1,
-    variation_type = NormalVariation(),
-    direction_change = StochasticReflectDirection(),
-    tuning = MFPSTuner(adaption_scheme=GoogleAdaption(automatic_adjusting=true), max_n_steps = 2*10^4),
+    variation_type = NoVariation(),
+    direction_change = RefreshDirection(),
+    tuning = MFPSTuner(target_mfps=5, adaption_scheme=GoogleAdaption(automatic_adjusting=true), max_n_steps = 2*10^4),
 );
 
-
+state = sample.ecmc_state[1].n_acc/sample.ecmc_state[1].n_steps
 
 sample = bat_sample(posterior, algorithm);
 samples = sample.result;
@@ -140,10 +140,13 @@ tuning_state = sample.ecmc_tuning_state[1] # tuning state for chain 1
 state = sample.ecmc_state[1]
 
 plot(samples)
+mean(abs.(mean(samples).a))
+mean(abs.(mean(samples).a))
 
 #ESS test
 ESS = 0
 eff_ss_result = bat_eff_sample_size(samples).result
+eff_mean = mean(eff_ss_result.a)
 eff_mean = mean(eff_ss_result.a)
 for ess_per_dim in bat_eff_sample_size(samples).result.a
     ESS += ess_per_dim 
