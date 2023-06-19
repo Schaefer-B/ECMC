@@ -12,7 +12,7 @@ using StatsBase
 using Serialization
 
 include("../ecmc.jl")
-include("../examples/test_distributions.jl")
+include("test_distributions.jl")
 
 
 @with_kw mutable struct performance_state

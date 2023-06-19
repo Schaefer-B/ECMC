@@ -15,6 +15,7 @@ export ECMCNoTuner
     max_n_steps::Int64 = 6*10^4
     adaption_scheme::A = NaiveAdaption() #NaiveAdaption() 
     tuning_convergence_check::C = AcceptanceRatioConvergence(target_acc = target_mfps / (target_mfps  + 1))
+    starting_alpha::Float64 = 0.1
 end
 export MFPSTuner
 

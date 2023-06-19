@@ -11,11 +11,11 @@ using BenchmarkTools
 gr(size=(1.3*850, 1.3*600), thickness_scaling = 1.5)
 
 
-include("test_distributions.jl")
+include("../test_distributions.jl")
 
 #-----------------
 
-likelihood, prior = mvnormal(16)
+likelihood, prior = mvnormal(32)
 posterior = PosteriorMeasure(likelihood, prior);
 logdensityof(posterior, rand(prior))
 
@@ -110,28 +110,28 @@ function save_plot(title)
 end
 
 
-include("../ecmc.jl")
+include("../../ecmc.jl")
 
 using Optim
-include("../examples/tuning_with_optim.jl")
+include("../../examples/tuning_with_optim.jl")
 
 
 algorithm = ECMCSampler(
     trafo = PriorToUniform(),
-    nsamples= 10*10^4,
+    nsamples= 1*10^4,
     nburnin = 0,
     nchains = 2,
     chain_length=8, 
     remaining_jumps_before_refresh=50,
-    step_amplitude=0.008,
+    step_amplitude = 0.1,
     factorized = false,
     step_var=0.1,
-    variation_type = NoVariation(),
-    direction_change = RefreshDirection(),
-    tuning = MFPSTuner(target_mfps=5, adaption_scheme=GoogleAdaption(automatic_adjusting=true), max_n_steps = 2*10^4),
+    variation_type = UniformVariation(),
+    direction_change = ReflectDirection(),
+    tuning = MFPSTuner(target_mfps=5, adaption_scheme=GoogleAdaption(automatic_adjusting=true), max_n_steps = 2*10^4, starting_alpha=0.5),
 );
 
-state = sample.ecmc_state[1].n_acc/sample.ecmc_state[1].n_steps
+#state = sample.ecmc_state[1].n_acc/sample.ecmc_state[1].n_steps
 
 sample = bat_sample(posterior, algorithm);
 samples = sample.result;
@@ -155,7 +155,9 @@ ESS
 
 
 #---------Ben Plot-----------
-tuner_plot = idontwannacalliteverytime("New Google adaption", true)
+tuner_plot = idontwannacalliteverytime("Google tuning with adjusting, α = 0.5", true)
+
+png("google_tuning_with_adjusting_high_alpha")
 
 tuning_state.tuned_delta
 

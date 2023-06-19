@@ -190,7 +190,7 @@ function _run_ecmc!(
             delta = refresh_delta(ecmc_state.step_amplitude, ecmc_state.step_var, ecmc_state.delta, ecmc_state.variation_type)
         end
     end
-
+    
     @pack! ecmc_state = C, current_energy, lift_vector, delta, remaining_jumps_before_refresh  
 
     return C

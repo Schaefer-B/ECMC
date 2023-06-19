@@ -7,6 +7,7 @@ using ForwardDiff
 using InverseFunctions
 using DensityInterface
 using BenchmarkTools
+using Serialization
 
 
 include("../../ecmc.jl")
@@ -160,6 +161,49 @@ function run_all_algos(delta_tests_arr, nsamples, runs, distribution, dimension,
 end
 
 
+function find_mean(ess_arrays, delta_tests_arr, mean_accs, direction_algos)
+    
+    best_acc = []
+    mfp_arr = []
+    for algo_index in eachindex(direction_algos)
+        ess_sum = sum(ess_arrays[algo_index])
+        p_ess = ess_arrays[algo_index]/ess_sum
+
+        mean_delta = sum(delta_tests_arr .* p_ess)
+
+        lower_index = findlast(x -> x <= mean_delta ? true : false, delta_tests_arr)
+        if lower_index != length(delta_tests_arr)
+            higher_index = lower_index + 1
+
+            lower_delta = delta_tests_arr[lower_index]
+            higher_delta = delta_tests_arr[higher_index]
+
+            lower_acc = mean_accs[algo_index][lower_index]
+            higher_acc = mean_accs[algo_index][higher_index]
+
+            linear_gradient = (higher_acc - lower_acc) / (higher_delta - lower_delta)
+            diff = mean_delta - lower_delta
+
+            acc = linear_gradient * diff + lower_acc
+            push!(best_acc, acc)
+
+            mfp = acc/(1-acc)
+
+            push!(mfp_arr, mfp)
+        else
+            acc = mean_accs[algo_index][lower_index]
+            push!(best_acc, acc)
+
+            mfp = acc/(1-acc)
+
+            push!(mfp_arr, mfp)
+        end
+    end
+
+    return best_acc, mfp_arr
+end
+
+
 #----------------functions for plotting------------------
 function plot_accs(delta_tests_arr, mean_accs, std_accs, ess_arrays, direction_algos)
 
@@ -211,7 +255,7 @@ function plot_accs(delta_tests_arr, mean_accs, std_accs, ess_arrays, direction_a
 end
 
 
-function plot_mean_ess(delta_tests_arr, ess_arrays, direction_algos)
+function plot_mean_ess(delta_tests_arr, mean_accs, ess_arrays, direction_algos)
 
 
     gr(size=(1.3*850, 1.3*800), thickness_scaling = 1.5)
@@ -247,6 +291,7 @@ function plot_mean_ess(delta_tests_arr, ess_arrays, direction_algos)
         for delta_index in eachindex(m_delta)
             final_plot = plot!([m_delta[delta_index]], st=:vline, lw=2, subplot=algo_index, color=:red)
             annotate!((m_delta[delta_index]*x_translation), 0.1*maximum(ess_arrays[algo_index]), text(string("Delta = ", round(m_delta[delta_index], digits=5)), :red, :right, 8), subplot=algo_index)
+            annotate!((m_delta[delta_index]*x_translation), 0.05*maximum(ess_arrays[algo_index]), text(string("Acc. rate = ", round(mean_accs[algo_index][m_index[delta_index]], digits=5)), :red, :right, 8), subplot=algo_index)
         end
     end
     final_plot = plot!(legend = false)
@@ -257,7 +302,7 @@ function plot_mean_ess(delta_tests_arr, ess_arrays, direction_algos)
 end
 
 
-function plot_mean_diffs(delta_tests_arr, mean_diffs, ess_arrays, direction_algos)
+function plot_mean_diffs(delta_tests_arr, mean_accs, mean_diffs, ess_arrays, direction_algos)
 
 
     gr(size=(1.3*850, 1.3*800), thickness_scaling = 1.5)
@@ -292,8 +337,9 @@ function plot_mean_diffs(delta_tests_arr, mean_diffs, ess_arrays, direction_algo
         x_translation = 0.94#- x_diff*0.01
         for delta_index in eachindex(m_delta)
             final_plot = plot!([m_delta[delta_index]], st=:vline, lw=2, subplot=algo_index, color=:red)
-            annotate!((m_delta[delta_index]*x_translation), 0.12, text(string("Delta = ", round(m_delta[delta_index], digits=5)), :red, :right, 8), subplot=algo_index)
+            annotate!((m_delta[delta_index]*x_translation), 0.5*maximum(mean_diffs[algo_index]), text(string("Delta = ", round(m_delta[delta_index], digits=5)), :red, :right, 8), subplot=algo_index)
             #annotate!((m_delta[delta_index]*x_translation), 0.06, text(string("Acc. ratio = ", round(mean_accs[algo_index][m_index[delta_index]], digits=5)), :red, :right, 8), subplot=algo_index)
+            annotate!((m_delta[delta_index]*x_translation), 0.45*maximum(mean_diffs[algo_index]), text(string("Acc. rate = ", round(mean_accs[algo_index][m_index[delta_index]], digits=5)), :red, :right, 8), subplot=algo_index)
         end
 
     end
@@ -310,7 +356,7 @@ end
 #------------------initializing, running and plotting----------------
 distribution = mvnormal
 dimension = 16
-nsamples = 15*10^4
+nsamples = 5*10^5
 runs = 4
 
 direction_algos = [RefreshDirection(), ReverseDirection(), ReflectDirection(), StochasticReflectDirection()]
@@ -321,26 +367,45 @@ delta_tests_arr = create_delta_array(0.001, 0.1, 20)
 #---
 mean_accs, std_accs, ess_arrays, mean_diffs = run_all_algos(delta_tests_arr, nsamples, runs, distribution, dimension, direction_algos)
 
+best_accs, best_mfps = find_mean(ess_arrays, delta_tests_arr, mean_accs, direction_algos)
+
+# result: best_accs = refresh: 0.3452185204245507  reverse: 0.6312359472313176  reflect: 0.6497585289605811  stochasticreflect: 0.6156345388184439
+
+#---
 p = plot_accs(delta_tests_arr, mean_accs, std_accs, ess_arrays, direction_algos)
 
-p_ess = plot_mean_ess(delta_tests_arr, ess_arrays, direction_algos)
+p_ess = plot_mean_ess(delta_tests_arr, mean_accs, ess_arrays, direction_algos)
 
-p_diff = plot_mean_diffs(delta_tests_arr, mean_diffs, ess_arrays, direction_algos)
+p_diff = plot_mean_diffs(delta_tests_arr, mean_accs, mean_diffs, ess_arrays, direction_algos)
 
-#delta approx 0.04 had highest ess
+#
+
+png("mean_of_diff_to_mean_all_directions")
+
+
 
 acc = 0.61
 mfp = acc/(1-acc)
 
-std_accs[1]
 
-s = sum(ess_arrays[1])
-p = ess_arrays[1]/s
 
-m = sum(delta_tests_arr .* p)
 
-delta_tests_arr[13]
+#---------saved----------
 
-mean_accs[1][13]
+to_save = [mean_accs, std_accs, ess_arrays, mean_diffs];
+serialize("ben_study_plots/tuning/saves/saved_fixed_delta_plots.jls", to_save);
+#used values:
+#distribution = mvnormal
+#dimension = 16
+#nsamples = 5*10^5
+#runs = 4
+#direction_algos = [RefreshDirection(), ReverseDirection(), ReflectDirection(), StochasticReflectDirection()]
+#delta_tests_arr = create_delta_array(0.001, 0.1, 20)
 
-mean_diffs[1][13]
+saved = deserialize("ben_study_plots/tuning/saves/saved_fixed_delta_plots.jls");
+mean_accs = saved[1]
+std_accs = saved[2]
+ess_arrays = saved[3]
+mean_diffs = saved[4]
+
+# result: best_accs = refresh: 0.3452185204245507  reverse: 0.6312359472313176  reflect: 0.6497585289605811  stochasticreflect: 0.6156345388184439
