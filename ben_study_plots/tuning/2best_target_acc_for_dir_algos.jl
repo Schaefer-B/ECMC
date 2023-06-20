@@ -112,9 +112,10 @@ function ess_run(posterior, algorithm, nchains)
     end
 
     newchains = 1
-    for i in 4:10
+    for i in reverse(collect(2:4))
         if nchains % i == 0
             newchains = Int(nchains/i)
+            break
         end
     end
     
@@ -215,6 +216,21 @@ function get_dist_arr(dists, dims)
     return result, names
 end
 
+@with_kw mutable struct DeltaState
+    boundary_deltas::Vector{Float64} = []
+    boundary_ess::Vector{Float64} = []
+
+    all_deltas::Vector{Float64} = []
+    all_ess::Vector{Float64} = []
+    distribution::String = "empty"
+    dimension::Int64 = 0
+    nsamples::Int64 = 0
+    newchains::Int64 = 0
+end
+
+
+
+
 #----------------functions for plotting------------------
 function plot_accs(ideal_deltas, ideal_accs, direction_algos, distributions)
 
@@ -295,8 +311,11 @@ end
 distributions = [mvnormal, funnel]
 dimensions = [8, 32, 128]
 t_dists, dist_names = get_dist_arr(distributions, dimensions)
-nsamples = 5*10^5
-runs = 1
+#nsamples = 5*10^5
+runs = 2 # = chains if runs = 2, 3 or 4
+
+dimension_sampling = true
+nsamples = 10^5 # nsamples needed for a 32D funnel
 
 
 direction_algos = [RefreshDirection(), ReverseDirection(), ReflectDirection(), StochasticReflectDirection()]
@@ -305,7 +324,7 @@ delta_tests_arr = create_delta_array(0.004, 0.02, 17)
 
 
 #---
-ideal_deltas, ideal_accs = run_all_algos(delta_tests_arr, nsamples, runs, t_dists, direction_algos)
+ideal_deltas, ideal_accs = run_all_algos(delta_tests_arr, nsamples, runs, t_dists, direction_algos, dimension_sampling)
 
 p = plot_accs(ideal_deltas, ideal_accs, direction_algos, dist_names)
 
@@ -335,3 +354,9 @@ serialize("ben_study_plots/tuning/saves/saved_best_target_accs_plots.jls", to_sa
 saved = deserialize("ben_study_plots/tuning/saves/saved_best_target_accs_plots.jls");
 ideal_deltas = saved[1]
 ideal_accs = saved[2]
+
+
+
+a = [[0.8, 100], [0.4, 400], [0.6, 300], [0.7, 350]]
+
+b = sort(a, by = x -> x[2])
