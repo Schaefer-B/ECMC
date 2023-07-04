@@ -9,297 +9,503 @@ using InverseFunctions
 using DensityInterface
 using BenchmarkTools
 using StatsBase
-using Serialization
+using FileIO
 
 include("../ecmc.jl")
 include("test_distributions.jl")
 
+ENV["JULIA_DEBUG"] = "BAT"
 
-@with_kw mutable struct performance_state
+
+# IMPORTANT:
+# no hmc states whatsover rn
+# create_result_state for hmc states is incomplete
+# create_algorithm for hmc states missing as well
+
+
+#-------------structs-----------------
+@with_kw mutable struct ecmc_performance_state
     target_distribution
     dimension::Int64
-    n_samples::Int64
-    n_burnin::Int64
-    n_real_chains::Int64
+    nsamples::Int64
+    nburnin::Int64
+    nchains::Int64
     tuning_max_n_steps
 
     adaption_scheme
-    direction_algo
+    direction_change_algorithm
     start_delta
     tuned_deltas
-    n_not_converged
+    tuning_steps
+    ntunings_not_converged
     step_variance
-    tuned_variances
+    variance_algorithm
     MFPS_value
     jumps_before_sample::Int64
     jumps_before_refresh::Int64
 
     samples
-    ESS_average_per_dimension
-    ESS_total_average
-    ESS_max
-    ESS_min
+    effective_sample_size
+end
 
+@with_kw mutable struct ecmc_result_state
+    target_distribution
+    dimension::Int64
+    nsamples::Int64
+    nburnin::Int64
+    nchains::Int64
+    tuning_max_n_steps
+
+    adaption_scheme
+    direction_change_algorithm
+    start_delta
+    tuned_deltas
+    tuning_steps
+    ntunings_not_converged
+    step_variance
+    variance_algorithm
+    MFPS_value
+    jumps_before_sample::Int64
+    jumps_before_refresh::Int64
+
+    samples
+    effective_sample_size
+end
+
+@with_kw mutable struct mcmc_performance_state
+    target_distribution
+    dimension::Int64
+    nsamples::Int64
+    nburninsteps_per_cycle::Int64
+    nburnin_max_cycles::Int64
+    nchains::Int64
+
+    samples
+    effective_sample_size
+end
+
+@with_kw mutable struct mcmc_result_state
+    target_distribution
+    dimension::Int64
+    nsamples::Int64
+    nburninsteps_per_cycle::Int64
+    nburnin_max_cycles::Int64
+    nchains::Int64
+
+    samples
+    effective_sample_size
 end
 
 
 
 #-------------needed functions----------
-function create_tuner_states(density, algorithm, nchains)
-    D = totalndof(density)
+function get_posterior(distribution, dimension)
+    likelihood, prior = distribution(dimension)
+    posterior = PosteriorMeasure(likelihood, prior)
+    return posterior
+end
 
-    initial_samples = [rand(BAT.getprior(density)) for i in 1:nchains]
-    lift_vectors = [refresh_lift_vector(D) for i in 1:nchains]
-    
 
-    delta = []
-    for i in 1:nchains
-        push!(delta, algorithm.step_amplitude)
-    end
-    #delta = algorithm.step_amplitude
 
-    
-    params = [0.98,
-    0.207210542888343,
-    0.0732514723260891,
-    0.4934509024569294,
-    17.587673168668637,
-    2.069505973296211,
-    0.6136869940758715,
-    163.53188824455017]
+#---------------------------------
 
-    ecmc_tuner_states = [ECMCTunerState(
-        C = initial_samples[i],
-        current_energy = -logdensityof(density, initial_samples[i]),
-        lift_vector = lift_vectors[i], 
-        delta = delta[i], 
-        tuned_delta = delta[i], 
-        remaining_jumps_before_refresh = algorithm.remaining_jumps_before_refresh, 
-        delta_arr = [delta[i], ],
-        params = params
-        )  for i in 1:nchains]
+function create_algorithm(p_state::ecmc_performance_state)
+    algorithm = ECMCSampler(
+        trafo = PriorToUniform(),
+        nsamples= p_state.nsamples,
+        nburnin = p_state.nburnin,
+        nchains = p_state.nchains,
+        chain_length = p_state.jumps_before_sample, 
+        remaining_jumps_before_refresh = p_state.jumps_before_refresh,
+        step_amplitude = p_state.start_delta,
+        factorized = false,
+        step_var = p_state.step_variance,
+        variation_type = p_state.variance_algorithm,
+        direction_change = p_state.direction_change_algorithm,
+        tuning = MFPSTuner(target_mfps=p_state.MFPS_value, adaption_scheme=p_state.adaption_scheme, max_n_steps = p_state.tuning_max_n_steps, starting_alpha=0.1),
+    )
+    return algorithm
+end
 
-    return ecmc_tuner_states
+function create_algorithm(p_state::mcmc_performance_state)
+    algorithm = MCMCSampling(
+        mcalg = MetropolisHastings(),
+        nsteps = p_state.nsamples, 
+        nchains = p_state.nchains,
+        burnin = MCMCMultiCycleBurnin(nsteps_per_cycle = p_state.nburninsteps_per_cycle, max_ncycles = p_state.nburnin_max_cycles),
+        convergence = BrooksGelmanConvergence(),
+        #init = MCMCChainPoolInit(nsteps_init = 1000),
+        )
+    return algorithm
 end
 
 
 
 
-
-#calls create_tuner_states and _ecmc_tuning
-function run_test!(p_state, dimension, runs=1, variance_test=false)
-    
-    
-    nchains = p_state.n_real_chains
-    nsamples = (p_state.n_samples/nchains) + p_state.n_burnin # calculation of nsamples so that chains and burnin get taken into account
-
-    tuner = MFPSTuner(adaption_scheme=p_state.adaption_scheme, max_n_steps = p_state.tuning_max_n_steps, target_mfps = p_state.MFPS_value)
-
-    likelihood, prior = p_state.target_distribution(dimension)
-    posterior = PosteriorMeasure(likelihood, prior);
-
-    p_state.dimension = totalndof(posterior)
+#---------------------------------
 
 
+function run_sampling!(posterior, algorithm, p_state::ecmc_performance_state)
+    sample = bat_sample(posterior, algorithm)
+    samples = sample.result
 
-    algorithm = ECMCSampler(
-        #trafo = NoDensityTransform(), 
-        trafo = PriorToUniform(),
-        nsamples = nsamples,
-        nburnin = p_state.n_burnin,
-        nchains = p_state.n_real_chains,
-        chain_length = p_state.jumps_before_sample, 
-        remaining_jumps_before_refresh = p_state.jumps_before_refresh,
-        step_amplitude = p_state.start_delta,
-        factorized = false,
-        #step_var=1.5*0.04,
-        direction_change = p_state.direction_algo,
-        tuning = tuner,
-    )
+    ess = bat_eff_sample_size(samples).result.a
 
-    posterior_notrafo = convert(AbstractMeasureOrDensity, posterior)
-    posterior_transformed, trafo = transform_and_unshape(algorithm.trafo, posterior_notrafo)
-    shape = varshape(posterior_transformed)
-
-    ess_array = []
-    #
-    # runs start
-    #
-    for i in 1:runs #CALCULATE MEANS OVER RUNS ETC
-        #
-        # tuning starts
-        #
-        tuner_states = create_tuner_states(posterior_transformed, algorithm, nchains)
-
-        T = typeof(tuner_states[1])
-        tuned_states = Array{T}(undef, nchains)
-        #steps_per_chain = Vector{Float64}(undef, nchains)
-        #deltas_per_chain = Vector{Float64}(undef, nchains)
-
-        
-        for c in 1:nchains
-            tuner_samples_per_chain, tuned_states[c] = _ecmc_tuning(algorithm.tuning, posterior_transformed, algorithm, ecmc_tuner_state=tuner_states[c], chainid=c) 
-            push!(p_state.tuned_deltas, tuned_states[c].tuned_delta)
-            #steps_per_chain[c] = tuned_state.n_steps
-            #deltas_per_chain[c] = tuned_state.tuned_delta
-            if tuned_states[c].n_steps >= p_state.tuning_max_n_steps
-                p_state.n_not_converged += 1
-            end
+    for chain_id in 1:p_state.nchains
+        t_state = sample.ecmc_tuning_state[chain_id]
+        p_state.tuning_steps = t_state.n_steps
+        if t_state.n_steps == p_state.tuning_max_n_steps
+            p_state.ntunings_not_converged += 1
         end
-
-
-
-        #
-        # ecmc states and p_state changes
-        #
-        ecmc_states = ECMCState(tuned_states, algorithm)
-
-        if variance_test == true
-            for state in ecmc_states
-                state.step_var = p_state.step_variance
-            end
-        else
-            for c in 1:nchains
-                push!(p_state.tuned_variances, ecmc_states[c].step_var)
-            end
-        end
-
-
-        #
-        # sampling starts
-        #
-        samples = []
-        for c in 1:nchains
-            samples_per_chain = _ecmc_sample(posterior_transformed, algorithm, ecmc_state=ecmc_states[c], chainid=c) 
-            push!(samples, samples_per_chain)
-        end
-        if variance_test == true
-            for c in 1:nchains
-                push!(p_state.tuned_variances, ecmc_states[c].step_var)
-            end
-        end
-
-        #
-        # inverse trafo and results
-        #
-        samples_trafo = shape.(convert_to_BAT_samples(samples, posterior_transformed))
-        samples_notrafo = inverse(trafo).(samples_trafo)
-
-        ess = bat_eff_sample_size(samples_notrafo).result.a
-
-        #push!(p_state.samples, samples_notrafo)
-        p_state.samples = samples_notrafo  # this means only the samples of the last run gets saved in p_state
-        #p_state.ESS = ess
-        #for i in eachindex(ess)
-        #    p_state.ESS_total += ess[i]
-        #end
-        push!(ess_array, ess)
-
+        e_state = sample.ecmc_state[chain_id]
+        push!(p_state.tuned_deltas, e_state.step_amplitude)
     end
+    p_state.samples = samples
+    p_state.effective_sample_size = ess
 
-    #
-    # mean calculating starts
-    #
-    if runs > 1
-        dim_av = mean(ess_array)
-    else
-        dim_av = ess_array[1]
-    end
-    p_state.ESS_average_per_dimension = dim_av
-    
-    p_state.ESS_total_average = sum(x -> dim_av[x], eachindex(dim_av))
-    p_state.ESS_max = maximum(x->maximum(x), ess_array)
-    p_state.ESS_min = minimum(x->minimum(x), ess_array)
+    return p_state
+end
+
+
+function run_sampling!(posterior, algorithm, p_state::mcmc_performance_state)
+    sample = bat_sample(posterior, algorithm)
+    samples = sample.result
+
+    ess = bat_eff_sample_size(samples).result.a
+
+    p_state.samples = samples
+    p_state.effective_sample_size = ess
+
+    return p_state
+end
+
+
+function run_sampling!(posterior, algorithm, p_state::hmc_performance_state)
+    sample = bat_sample(posterior, algorithm)
+    samples = sample.result
+
+    ess = bat_eff_sample_size(samples).result.a
+
+    p_state.samples = samples
+    p_state.effective_sample_size = ess
 
     return p_state
 end
 
 
 
-#function create_performance_states()
+#---------------------------------
 
-#    return performance_states
-#end
+function create_result_state(p_state::ecmc_performance_state)
+    println("create result state in ecmc")
+    r_state = ecmc_result_state(
+    target_distribution = string(p_state.target_distribution),
+    dimension = p_state.dimension,
+    nsamples = p_state.nsamples,
+    nburnin = p_state.nburnin,
+    nchains = p_state.nchains,
+    tuning_max_n_steps = p_state.tuning_max_n_steps,
 
-function run_all_tests(p_states, runs=1, variance_test=false)
+    adaption_scheme = string(p_state.adaption_scheme),
+    direction_change_algorithm = string(p_state.direction_change_algorithm),
+    start_delta = p_state.start_delta,
+    tuned_deltas = p_state.tuned_deltas,
+    tuning_steps = p_state.tuning_steps,
+    ntunings_not_converged = p_state.ntunings_not_converged,
+    step_variance = p_state.step_variance,
+    variance_algorithm = string(p_state.variance_algorithm),
+    MFPS_value = p_state.MFPS_value,
+    jumps_before_sample = p_state.jumps_before_sample,
+    jumps_before_refresh = p_state.jumps_before_refresh,
 
-    result_states = Vector{Any}(undef, length(p_states))
+    samples = p_state.samples,
+    effective_sample_size = p_state.effective_sample_size,
+    )
 
-    Threads.@threads for i in eachindex(p_states)
-        result_states[i] = run_test!(p_states[i], p_states[i].dimension, runs, variance_test)
+    return r_state
+end
+
+
+
+function create_result_state(p_state::mcmc_performance_state)
+    println("create result state in mcmc")
+    r_state = mcmc_result_state(
+    target_distribution = string(p_state.target_distribution),
+    dimension = p_state.dimension,
+    nsamples = p_state.nsamples,
+    nburninsteps_per_cycle = p_state.nburninsteps_per_cycle,
+    nburnin_max_cycles = p_state.nburnin_max_cycles,
+    nchains = p_state.nchains,
+
+    samples = p_state.samples,
+    effective_sample_size = p_state.effective_sample_size,
+    )
+    
+    return r_state
+end
+
+
+function create_result_state(p_state::hmc_performance_state)
+
+    return r_state
+end
+
+#---------------------------------
+
+function one_run(p_state)
+
+    posterior = get_posterior(p_state.target_distribution, p_state.dimension)
+
+    algorithm = create_algorithm(p_state)
+
+    run_sampling!(posterior, algorithm, p_state)
+    
+    result_state = create_result_state(p_state)
+
+    return result_state
+end
+
+
+function multi_run(p_states)
+
+    if p_states == []
+        return []
+    end
+    nstates = length(p_states)
+    result_states = Vector{Any}(undef, nstates)
+    Threads.@threads for p_index in 1:nstates
+        result_states[p_index] = one_run(p_states[p_index])
     end
 
     return result_states
 end
 
 
+function ecmc_mcmc_hmc_results(ecmc_states, mcmc_states, hmc_states)
+
+    ecmc_results = multi_run(ecmc_states)
+
+    mcmc_results = multi_run(mcmc_states)
+
+    hmc_results = multi_run(hmc_states)
+
+    return ecmc_results, mcmc_results, hmc_results
+end
+
+
+function save_state(p_state::ecmc_result_state)
+    location = "ben_study_plots/saved_performance_test_result_states/"
+    sampler = "ecmc/"
+    name = string(p_state.target_distribution, p_state.dimension,"D_", p_state.direction_change_algorithm, p_state.MFPS_value, "MFPS", p_state.jumps_before_refresh, "jbr")
+    extension = ".jld2"
+    full_name = string(location,sampler,name,extension)
+    save(full_name, Dict("state" => p_state))
+end
+
+function multi_save_states(state_arr)
+    for state in state_arr
+        save_state(state)
+    end
+end
+
+
+function load_state(p_state::ecmc_performance_state)
+    location = "ben_study_plots/saved_performance_test_result_states/"
+    sampler = "ecmc/"
+    name = string(p_state.target_distribution, p_state.dimension,"D_", p_state.direction_change_algorithm, p_state.MFPS_value, "MFPS", p_state.jumps_before_refresh, "jbr")
+    extension = ".jld2"
+    full_name = string(location,sampler,name,extension)
+    saved_state = load(full_name, "state")
+    return saved_state
+end
+
+
+
+#----------------------plotting functions-----------------------------------
+
+function plot_mfps_tests(state_arr)
+
+    
+
+
+end
+
+
+
+
+
+
+
 
 
 #----------------------everything that should be looped over--------------
-n_samples = 1*10^5 # samples in total not by chain! i changed it here for test purposes and it takes burnin into account too
-n_burnin = 0 # burned by chain but n_samples is calculated so that burnin doesnt change the total samples
-n_real_chains = [4]
-tuning_max_n_steps = 2*10^4
+#ecmc state stuff:
+nsamples = 2*10^5
+nburnin = 0
+nchains = [4]
+tuning_max_n_steps = 3*10^4
 
-distributions = [funnel]
-dimensions = [64]
-adaption_schemes = [GoogleAdaption()]
-#direction_algos = [RefreshDirection(), ReverseDirection(), ReflectDirection(), StochasticReflectDirection()]
-direction_algos = [ReflectDirection(), TestDirection(), StochasticReflectDirection()]
+distributions = [mvnormal]
+dimensions = [3]
+adaption_schemes = [GoogleAdaption(automatic_adjusting=true)]
+direction_change_algorithms = [RefreshDirection(), ReverseDirection(), GradientRefreshDirection(), ReflectDirection(), StochasticReflectDirection()]
 
-start_deltas = [10^0]
-step_variances = [0.01]
-MFPS_values = [5]
-jumps_before_sample = [5]
+start_deltas = [10^-1]
+step_variances = [0.1]
+variance_algorithms = [NormalVariation()]
+MFPS_values = [1,2,3,4,5]
+jumps_before_sample = [10]
 jumps_before_refresh = [50]
 
 
+#mcmc state stuff:
+mcmc_distributions = [funnel]
+mcmc_dimensions = [64]
+mcmc_nsamples = 2*10^5
+nburninsteps_per_cycle = 10^5
+nburnin_max_cycles = 60
+mcmc_nchains = 4
+
+
+
+#hmc state stuff:
+
+
+
+#other:
+#kolgorov smirnoff test ks-Test wie ähnlich verteilungen sind
+#anderson darling test
+#salvatore oder lars für cluster fragen
+#sum of weitghts
+
+
 #---------------initializing p_states----------
-p_start_states = [performance_state(
+ecmc_p_states = [ecmc_performance_state(
     target_distribution = distributions[dist],
     dimension = dimensions[dim],
-    n_samples = n_samples,
-    n_burnin = n_burnin,
-    n_real_chains = n_real_chains[chain],
+    nsamples = nsamples,
+    nburnin = nburnin,
+    nchains = nchains[chain],
     tuning_max_n_steps = tuning_max_n_steps,
 
     adaption_scheme = adaption_schemes[ad_s],
-    direction_algo = direction_algos[dir],
+    direction_change_algorithm = direction_change_algorithms[dir],
     start_delta = start_deltas[sdelta],
     tuned_deltas = [],
-    n_not_converged = 0,
+    tuning_steps = [],
+    ntunings_not_converged = 0,
     step_variance = step_variances[s_var],
-    tuned_variances = [],
+    variance_algorithm = variance_algorithms[v_algo],
     MFPS_value = MFPS_values[mfp],
     jumps_before_sample = jumps_before_sample[j_sam], 
     jumps_before_refresh = jumps_before_refresh[j_ref],
 
     samples = [],
-    ESS_average_per_dimension = [],
-    ESS_total_average = 0,
-    ESS_max = 0,
-    ESS_min = 0
+    effective_sample_size = [],
     ) for dist=eachindex(distributions), 
         dim=eachindex(dimensions), 
-        chain=eachindex(n_real_chains),
+        chain=eachindex(nchains),
         ad_s=eachindex(adaption_schemes),
-        dir=eachindex(direction_algos), 
+        dir=eachindex(direction_change_algorithms), 
         sdelta=eachindex(start_deltas), 
         s_var=eachindex(step_variances), 
+        v_algo=eachindex(variance_algorithms),
         mfp=eachindex(MFPS_values), 
         j_sam=eachindex(jumps_before_sample), 
         j_ref=eachindex(jumps_before_refresh)
 ]
 
+
+mcmc_p_states = [mcmc_performance_state(
+    target_distribution = mcmc_distributions[dist],
+    dimension = mcmc_dimensions[dims],
+    nsamples = mcmc_nsamples,
+    nburninsteps_per_cycle = nburninsteps_per_cycle,
+    nburnin_max_cycles = nburnin_max_cycles,
+    nchains = mcmc_nchains,
+
+    samples = [],
+    effective_sample_size = [],
+) for dist=eachindex(mcmc_distributions),
+    dims=eachindex(mcmc_dimensions)
+]
+
+
+
+#hmc_p_states = [hmc_performance_state(
+
+#) for 
+#]
+
 #rastaban
 
 #--------running stuff------------
-variance_test = true # false means step variance is determined by tuning instead of the array in the initialize stuff
-runs = 1000 # over how many runs should the mean for ess etc be calculated?
-p_end_states = run_all_tests(p_start_states, runs, variance_test);
+
+ecmc_results = multi_run(ecmc_p_states)
+
+save_state(ecmc_results[1])
+multi_save_states(ecmc_results)
+
+
+katze = load_state(ecmc_p_states[1])
+ecmc_results[1].target_distribution == katze.target_distribution ? println("yes") : println("no")
+ecmc_results[1].samples == katze.samples ? println("yes") : println("no")
+
+a = one_run(ecmc_p_states[1])
+b = one_run(ecmc_p_states[4])
+
+mcmc_results = multi_run(mcmc_p_states)
+
+length(mcmc_results[1].samples)
+hmc_p_states = [] # TEMP
+ecmc_results, mcmc_results, hmc_results = ecmc_mcmc_hmc_results(ecmc_p_states, mcmc_p_states, hmc_p_states)
+
+length(mcmc_results[1].samples)
+
+mean(abs.(mean(ecmc_results[1].samples.v.a)))
+mean(abs.(mean(ecmc_results[2].samples.v.a)))
+mean(abs.(mean(mcmc_results[1].samples.v.a)))
+
+plot(ecmc_results[1].samples)
+plot(ecmc_results[2].samples)
+plot(mcmc_results[1].samples)
 
 
 #-----------results--------------
+#ESS mean:
+for i in eachindex(ecmc_results)
+    println(string(ecmc_results[i].direction_change_algorithm, " on ", ecmc_results[i].target_distribution," ", ecmc_results[i].dimension, "D"))
+    println(string("    effective_sample_size(mean) = ",round(mean(ecmc_results[i].effective_sample_size), digits=3)))
+    println()
+end
+for i in eachindex(mcmc_results)
+    println(string("MCMC MetropolisHastings()", " on ", mcmc_results[i].target_distribution," ", mcmc_results[i].dimension, "D"))
+    println(string("    effective_sample_size(mean) = ",round(mean(mcmc_results[i].effective_sample_size), digits=3)))
+    println()
+end
+
+
+
+mode(a.samples)
+mode(b.samples)
+mode(mcmc_results[1].samples)
+
+mean(a.effective_sample_size)
+mean(b.effective_sample_size)
+mean(mcmc_results[1].effective_sample_size)
+
+
+
+
+
+
+#--------------------------------
+#--------------------------------
+#OLD stuff:
+
+
+
+
 #sort for different direction algos
 k = findall(x->x.direction_algo == ReflectDirection() ? true : false, p_end_states);
 p_states_for_one_direction = p_end_states[k];

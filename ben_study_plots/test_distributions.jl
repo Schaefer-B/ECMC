@@ -7,7 +7,7 @@
 function mvnormal(dimension)
     D = dimension
     μ = fill(0.0, D)
-    σ = 1:D #collect(range(1, 10, D))
+    σ = fill(1.0, D) #collect(range(1, 10, D))
 
     likelihood = let D = D, μ = μ, σ = σ
         logfuncdensity(params -> begin
@@ -16,9 +16,8 @@ function mvnormal(dimension)
         end)
     end 
 
-    prior_max = fill(maximum(σ), D)
     prior = BAT.NamedTupleDist(
-        a = Uniform.(-6*prior_max, 6*prior_max)
+        a = Uniform.(-10*σ, 10*σ)
     )
     return likelihood, prior
 end

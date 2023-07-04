@@ -15,18 +15,180 @@ include("../test_distributions.jl")
 
 
 
+#----------------strcuts-------------------
+@with_kw mutable struct DeltaState
+    boundary_deltas::Vector{Float64}
+    boundary_ess::Vector{Float64}
 
+    all_deltas::Vector{Float64}
+    all_ess::Vector{Float64}
+    all_ess_stds::Vector{Float64}
+
+    direction_algorithm
+    distribution
+    dimension::Int64
+    nsamples::Int64
+    nchains::Int64
+    depth::Int64
+end
 
 
 
 #----------------functions for sampling------------------
-function create_delta_array(delta_start, delta_end, steps)
-    a = log(delta_start)
-    b = log(delta_end)
-    log_arr = collect(range(a, b, steps))
-    arr = exp.(log_arr)
-    return arr
+function mid_delta(deltas)
+    logdelta_1 = log(deltas[1])
+    logdelta_2 = log(deltas[2])
+
+    logmiddle = (logdelta_1 + logdelta_2)/2
+
+    return exp(logmiddle)
 end
+
+
+function new_boundaries(old_boundary_deltas, new_delta, old_boundary_ess, new_ess)
+    index = 0
+    old_boundary_ess[1] >= old_boundary_ess[2] ? index = 1 : index = 2
+    if index == 1
+        new_boundary_deltas = [old_boundary_deltas[1], new_delta]
+        new_boundary_ess = [old_boundary_ess[1], new_ess]
+    else
+        new_boundary_deltas = [new_delta, old_boundary_deltas[2]]
+        new_boundary_ess = [new_ess, old_boundary_ess[2]]
+    end
+
+    return new_boundary_deltas, new_boundary_ess
+end
+
+
+function create_algorithm(delta, nsamples, Direction, nchains, step_var=0., var_type = NoVariation(), ch_length=10, jb_refresh=50)
+    algorithm = ECMCSampler(
+        trafo = PriorToUniform(),
+        nsamples= nsamples,
+        nburnin = Int(floor(0.01*nsamples)),
+        nchains = nchains,
+        chain_length=ch_length, 
+        remaining_jumps_before_refresh = jb_refresh,
+        step_amplitude = delta,
+        factorized = false,
+        step_var = step_var,
+        variation_type = var_type,
+        direction_change = Direction,
+        tuning = ECMCNoTuner(),
+    )
+    return algorithm
+end
+
+
+function get_mean_ess(posterior, algorithm)
+    sample = bat_sample(posterior, algorithm)
+    samples = sample.result
+
+    ess = bat_eff_sample_size(samples).result.a
+
+    return mean(ess), std(ess)
+end
+
+
+
+function one_step_deeper!(d_state)
+
+    @unpack boundary_deltas, boundary_ess, depth = d_state
+
+    old_boundary_deltas = boundary_deltas
+    old_boundary_ess = boundary_ess
+
+    likelihood, prior = d_state.distribution(d_state.dimension)
+    posterior = PosteriorMeasure(likelihood, prior)
+
+
+    new_delta = mid_delta(boundary_deltas)
+    algorithm = create_algorithm(new_delta, d_state.nsamples, d_state.direction_algo, d_state.nchains)
+
+    new_ess, new_ess_std = get_mean_ess(posterior, algorithm)
+
+    boundary_deltas, boundary_ess = new_boundaries(old_boundary_deltas, new_delta, old_boundary_ess, new_ess)
+
+    depth += 1
+
+    @pack! d_state = boundary_deltas, boundary_ess, depth
+
+    push!(d_state.all_deltas, new_delta)
+    push!(d_state.all_ess, new_ess)
+    push!(d_state.all_ess_stds, new_ess_std)
+
+    return d_state
+end
+
+
+function initialize_delta_state(deltas, direction_algo, distribution, dimension, nsamples, nchains)
+
+
+    algorithms = [create_algorithm(deltas[i], nsamples, direction_algo, nchains) for i in 1:2]
+
+    likelihood, prior = distribution(dimension)
+    posterior = PosteriorMeasure(likelihood, prior)
+
+    lower_b_ess, lower_b_std = get_mean_ess(posterior, algorithms[1])
+    higher_b_ess, higher_b_std = get_mean_ess(posterior, algorithms[2])
+
+    d_state  = DeltaState(
+        boundary_deltas = deltas,
+        boundary_ess = [lower_b_ess, higher_b_ess],
+        all_deltas = [deltas[1], deltas[2]],
+        all_ess = [lower_b_ess, higher_b_ess],
+        all_ess_stds = [lower_b_std, higher_b_std],
+        direction_algorithm = direction_algo,
+        distribution = distribution,
+        dimension = dimension,
+        nsamples = nsamples,
+        nchains = nchains,
+        depth = 0,
+    )
+    
+    return d_state
+end
+
+
+function initialize_multiple_delta_states(deltas, direction_algos, distributions, dimensions, nsamples, nchains)
+    d_states = []
+    for dir_algo in direction_algos, dist in distributions, dim in dimensions
+        state = initialize_delta_state(deltas, dir_algo, dist, dim, nsamples, nchains)
+        push!(d_states, state)
+    end
+    return d_states
+end
+
+
+function multi_run_till_depth_reached(deltas, direction_algos, distributions, dimensions, nsamples, nchains, max_depth)
+    d_states = initialize_multiple_delta_states(deltas, direction_algos, distributions, dimensions, nsamples, nchains)
+
+    for d_state in d_states
+        while d_state.depth < max_depth
+            one_step_deeper!(d_state)
+        end
+    end
+
+    return d_states
+end
+
+function multi_run_till_depth_reached(d_states::Vector{DeltaState}, max_depth)
+
+    for d_state in d_states
+        while d_state.depth < max_depth
+            one_step_deeper!(d_state)
+        end
+    end
+
+    return d_states
+end
+
+
+
+#------------------------START: old stuff----------------------------
+
+
+
+
 
 function create_algorithm(delta, nsamples, Direction, step_var=0., var_type = NoVariation(), ch_length=10, jb_refresh=50)
     algorithm = ECMCSampler(
@@ -85,7 +247,21 @@ function create_ecmc_states(density, algorithm, nchains)
     return ecmc_states
 end
 
+#creates an array where first the dimensions change and then the distributions if called linearly
+function get_dist_arr(dists, dims)
+    result = Vector{Any}(undef, length(dists)*length(dims))
+    names = Vector{String}(undef, length(dists)*length(dims))
+    i = 0
+    for ds in dists
+        for dm in dims
+            i += 1
+            result[i] = ds(dm)
+            names[i] = string(dm, "D ", ds)
+        end
+    end
 
+    return result, names
+end
 
 
 function ess_run(posterior, algorithm, nchains)
@@ -201,37 +377,6 @@ function run_all_algos(delta_tests_arr, nsamples, runs, distributions, dir_algos
 end
 
 
-function get_dist_arr(dists, dims)
-    result = Vector{Any}(undef, length(dists)*length(dims))
-    names = Vector{String}(undef, length(dists)*length(dims))
-    i = 0
-    for ds in dists
-        for dm in dims
-            i += 1
-            result[i] = ds(dm)
-            names[i] = string(dm, "D ", ds)
-        end
-    end
-
-    return result, names
-end
-
-@with_kw mutable struct DeltaState
-    boundary_deltas::Vector{Float64} = []
-    boundary_ess::Vector{Float64} = []
-
-    all_deltas::Vector{Float64} = []
-    all_ess::Vector{Float64} = []
-    distribution::String = "empty"
-    dimension::Int64 = 0
-    nsamples::Int64 = 0
-    newchains::Int64 = 0
-end
-
-
-
-
-#----------------functions for plotting------------------
 function plot_accs(ideal_deltas, ideal_accs, direction_algos, distributions)
 
     
@@ -307,34 +452,112 @@ function plot_deltas(ideal_deltas, ideal_accs, direction_algos, distributions)
 end
 
 
+
+
+
+
+
+#------------------------END: old stuff----------------------------
+
+
+
+
+
+#----------------functions for plotting------------------
+
+function plot_accs(d_states::Vector{DeltaState})
+
+    
+    gr(size=(1.3*850, 1.3*800), thickness_scaling = 1.5)
+
+    algo_count = length(direction_algos)
+    dist_count = length(distributions)
+    
+    if algo_count > 1
+        final_plot = plot(layout=(Int(algo_count/2), 2))
+    else
+        final_plot = plot(layout=(1,1))
+    end
+    
+
+
+    x_values = [string(distributions[i]) for i=eachindex(distributions)]
+
+
+    for algo_index in 1:algo_count
+        label = chop(string(direction_algos[algo_index]), head=0, tail=0)
+        dist_index = eachindex(distributions)
+        final_plot = scatter!(dist_index .-0.5, ideal_accs[algo_index], msize=8, title=label, subplot=algo_index, xdiscrete_values=x_values)
+        
+        final_plot = plot!(xlabel="Distributions", ylabel="Acceptance rate", subplot=algo_index)
+        mean_acc = mean(ideal_accs[algo_index])
+        final_plot = plot!([mean_acc], st=hline, color=:red, lw=2, subplot=algo_index)
+        diff = maximum(ideal_accs[algo_index]) - minimum(ideal_accs[algo_index])
+        final_plot = annotate!(0.01*dist_count, mean_acc+diff*0.02, text(string(round(mean_acc, digits=4)), :red, :left, 8), subplot=algo_index)
+
+    end
+
+    final_plot = plot!(legend = false, xlims=(0., length(distributions)))
+
+    return final_plot
+end
+
+function plot_deltas(d_states::Vector{DeltaState})
+
+    
+    gr(size=(1.3*850, 1.3*800), thickness_scaling = 1.5)
+
+    algo_count = length(direction_algos)
+    dist_count = length(distributions)
+    
+    if algo_count > 1
+        final_plot = plot(layout=(Int(algo_count/2), 2))
+    else
+        final_plot = plot(layout=(1,1))
+    end
+    
+
+
+    x_values = [string(distributions[i]) for i=eachindex(distributions)]
+
+
+    for algo_index in 1:algo_count
+        label = chop(string(direction_algos[algo_index]), head=0, tail=0)
+        dist_index = eachindex(distributions)
+        final_plot = scatter!(dist_index .-0.5, ideal_deltas[algo_index], msize=8, title=label, subplot=algo_index, xdiscrete_values=x_values)
+        
+        final_plot = plot!(xlabel="Distributions", ylabel="Delta", subplot=algo_index)
+        mean_delta = mean(ideal_deltas[algo_index])
+        final_plot = plot!([mean_delta], st=hline, color=:red, lw=2, subplot=algo_index)
+        diff = maximum(ideal_deltas[algo_index]) - minimum(ideal_deltas[algo_index])
+        final_plot = annotate!(0.01*dist_count, mean_delta+diff*0.02, text(string(round(mean_delta, digits=6)), :red, :left, 8), subplot=algo_index)
+
+    end
+
+    final_plot = plot!(legend = false, xlims=(0., length(distributions)))
+
+    return final_plot
+end
+
+
+
+
+
 #------------------initializing, running and plotting----------------
 distributions = [mvnormal, funnel]
 dimensions = [8, 32, 128]
-t_dists, dist_names = get_dist_arr(distributions, dimensions)
-#nsamples = 5*10^5
-runs = 2 # = chains if runs = 2, 3 or 4
-
-dimension_sampling = true
 nsamples = 10^5 # nsamples needed for a 32D funnel
+nchains = 2
 
 
 direction_algos = [RefreshDirection(), ReverseDirection(), ReflectDirection(), StochasticReflectDirection()]
 direction_algos = [StochasticReflectDirection()]
-delta_tests_arr = create_delta_array(0.004, 0.02, 17)
 
 
 #---
-ideal_deltas, ideal_accs = run_all_algos(delta_tests_arr, nsamples, runs, t_dists, direction_algos, dimension_sampling)
 
-p = plot_accs(ideal_deltas, ideal_accs, direction_algos, dist_names)
 
-p_delta = plot_deltas(ideal_deltas, ideal_accs, direction_algos, dist_names)
 
-png(string("best_target_accs_for", direction_algos[1]))
-png(string("best_deltas_for", direction_algos[1]))
-#
-acc = mean(ideal_accs[1])
-mfp = acc/(1-acc)
 
 
 
@@ -355,8 +578,3 @@ saved = deserialize("ben_study_plots/tuning/saves/saved_best_target_accs_plots.j
 ideal_deltas = saved[1]
 ideal_accs = saved[2]
 
-
-
-a = [[0.8, 100], [0.4, 400], [0.6, 300], [0.7, 350]]
-
-b = sort(a, by = x -> x[2])

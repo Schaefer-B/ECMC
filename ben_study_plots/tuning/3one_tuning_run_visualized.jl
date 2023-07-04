@@ -8,14 +8,14 @@ using InverseFunctions
 using DensityInterface
 using BenchmarkTools
 
-gr(size=(1.3*850, 1.3*600), thickness_scaling = 1.5)
+
 
 
 include("../test_distributions.jl")
 
 #-----------------
 
-likelihood, prior = mvnormal(32)
+likelihood, prior = funnel(2048)
 posterior = PosteriorMeasure(likelihood, prior);
 logdensityof(posterior, rand(prior))
 
@@ -25,6 +25,7 @@ logdensityof(posterior, rand(prior))
 #for plotting
 function idontwannacalliteverytime(title = "Test", everyaxis=false)
 
+    gr(size=(1.3*850, 1.3*600), thickness_scaling = 1.5)
 
     acc_C = tuning_state.acc_C
     n_steps = tuning_state.n_steps
@@ -115,10 +116,11 @@ include("../../ecmc.jl")
 using Optim
 include("../../examples/tuning_with_optim.jl")
 
+ENV["JULIA_DEBUG"] = "BAT"
 
 algorithm = ECMCSampler(
     trafo = PriorToUniform(),
-    nsamples= 1*10^4,
+    nsamples= 1*10^6,
     nburnin = 0,
     nchains = 2,
     chain_length=8, 
@@ -127,21 +129,29 @@ algorithm = ECMCSampler(
     factorized = false,
     step_var=0.1,
     variation_type = UniformVariation(),
-    direction_change = ReflectDirection(),
-    tuning = MFPSTuner(target_mfps=5, adaption_scheme=GoogleAdaption(automatic_adjusting=true), max_n_steps = 2*10^4, starting_alpha=0.5),
+    direction_change = StochasticReflectDirection(),
+    tuning = MFPSTuner(target_mfps=5, adaption_scheme=GoogleAdaption(automatic_adjusting=true), max_n_steps = 2*10^4, starting_alpha=0.1),
 );
 
 #state = sample.ecmc_state[1].n_acc/sample.ecmc_state[1].n_steps
 
-sample = bat_sample(posterior, algorithm);
+sample = bat_sample(posterior, algorithm)
 samples = sample.result;
 
 tuning_state = sample.ecmc_tuning_state[1] # tuning state for chain 1
 state = sample.ecmc_state[1]
 
-plot(samples)
+plot(samples, nbins=100)
+plot(
+    samples, (:(a[1]), :(a[2])),
+    mean = true, std = true, globalmode = true, marginalmode = true,
+    nbins = 50, title = "a1 and a2 test"
+)
+
+SampledDensity(posterior, samples)
+
 mean(abs.(mean(samples).a))
-mean(abs.(mean(samples).a))
+mean(bat_eff_sample_size(samples).result)
 
 #ESS test
 ESS = 0
@@ -155,9 +165,9 @@ ESS
 
 
 #---------Ben Plot-----------
-tuner_plot = idontwannacalliteverytime("Google tuning with adjusting, α = 0.5", true)
+tuner_plot = idontwannacalliteverytime("Google tuning with adjusting, Funnel 2048D", true)
 
-png("google_tuning_with_adjusting_high_alpha")
+png("google_tuning_with_adjusting_high_dimensions")
 
 tuning_state.tuned_delta
 
@@ -189,28 +199,77 @@ tuning_state.tuned_delta
 
 
 
+function multimodalmixture(dimension)
+    D = dimension
+
+    likelihood = let D = D
+        logfuncdensity(params -> begin
+
+        return logpdf(BAT.MultimodalCauchy(μ = 1., σ = 0.2, n = D), params.a)
+        end)
+    end 
+
+    σ = 10*ones(D)
+    prior = BAT.NamedTupleDist(
+        a = Uniform.(-σ, σ)
+    )
+    return likelihood, prior
+end
+
+likelihood, prior = funnel(2048)
+posterior = PosteriorMeasure(likelihood, prior);
+logdensityof(posterior, rand(prior))
 
 
 
+algorithm = ECMCSampler(
+    trafo = PriorToUniform(),
+    nsamples= 10^7,
+    nburnin = 0,
+    nchains = 2,
+    chain_length=8, 
+    remaining_jumps_before_refresh=50,
+    step_amplitude = 0.1,
+    factorized = false,
+    step_var=0.1,
+    variation_type = NormalVariation(),
+    direction_change = StochasticReflectDirection(),
+    tuning = MFPSTuner(target_mfps=4, adaption_scheme=GoogleAdaption(automatic_adjusting=true), max_n_steps = 4*10^4, starting_alpha=0.1),
+);
+
+#state = sample.ecmc_state[1].n_acc/sample.ecmc_state[1].n_steps
+
+sample = bat_sample(posterior, algorithm);
+samples = sample.result;
 
 
-
-
-
-
-#save 2 plots with title and legends false/true
-save_plot("Google Tuner")
 
 
 #comparison to mcmc
-mcmc_samples = bat_sample(posterior, MCMCSampling(mcalg = MetropolisHastings(), nsteps = 10^5, nchains = 2)).result
+mcmc_sample = bat_sample(posterior, MCMCSampling(mcalg = MetropolisHastings(), nsteps = 10^7, nchains = 2))
+mcmc_samples = mcmc_sample.result
 plot(mcmc_samples)
+bat_eff_sample_size(mcmc_samples).result.a
 
 mcmc_ESS = 0
 for ess_per_dim in bat_eff_sample_size(mcmc_samples).result.a
     mcmc_ESS += ess_per_dim 
 end
 mcmc_ESS
+
+#funnel 2048D
+#samples/steps = 10^7
+#nchains = 2
+#mcmc ess = 
+#mcmc mean = 
+#mcmc std = 
+#mcmc time = 
+#
+#ecmc ess = 
+#ecmc mean = 
+#ecmc std = 
+#ecmc time = 
+
 #------------------------------------------
 #------------------------------------------
 #------------------------------------------
