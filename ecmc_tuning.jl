@@ -11,10 +11,12 @@ struct ECMCNoTuner <: ECMCTuner end
 export ECMCNoTuner
 
 @with_kw struct MFPSTuner{A<:ECMCStepSizeAdaptor, C<:ECMCTuningConvergenceCheck} <: ECMCTuner
-    target_mfps::Int64 = 5
+    target_mfps::Float64 = 3.
+    target_acc::Float64 = target_mfps / (target_mfps  + 1)
     max_n_steps::Int64 = 6*10^4
     adaption_scheme::A = NaiveAdaption() #NaiveAdaption() 
-    tuning_convergence_check::C = AcceptanceRatioConvergence(target_acc = target_mfps / (target_mfps  + 1))
+    #tuning_convergence_check::C = (target_mfps == 0. ? AcceptanceRatioConvergence(target_acc = target_acc) : AcceptanceRatioConvergence(target_acc = target_mfps / (target_mfps  + 1)))
+    tuning_convergence_check::C = AcceptanceRatioConvergence(target_acc = target_acc)
     starting_alpha::Float64 = 0.1
 end
 export MFPSTuner
@@ -39,7 +41,7 @@ struct NaiveAdaption <: ECMCStepSizeAdaptor end
 export NaiveAdaption
 
 function adapt_delta(adaption_scheme::NaiveAdaption, delta, ecmc_tuner_state, tuner::MFPSTuner)
-    target_acc =  tuner.target_mfps / (tuner.target_mfps  + 1) #TODO: compute once and store in algorithm struct
+    target_acc =  tuner.tuning_convergence_check.target_acc #TODO: compute once and store in algorithm struct
 
     acc_array = ecmc_tuner_state.acc_C
     steps = ecmc_tuner_state.n_steps
@@ -122,7 +124,7 @@ struct ManonAdaption <: ECMCStepSizeAdaptor end
 export ManonAdaption
 
 function adapt_delta(adaption_scheme::ManonAdaption, delta, ecmc_state, tuner::MFPSTuner)
-    target_acc = tuner.target_mfps / (tuner.target_mfps  + 1)
+    target_acc = tuner.tuning_convergence_check.target_acc
     
     #current_acc = m/(m+1)
     current_acc = ecmc_state.n_acc/ecmc_state.n_steps
@@ -143,7 +145,7 @@ end
 export GoogleAdaption
 
 function adapt_delta(adaption_scheme::GoogleAdaption, delta, ecmc_tuner_state, tuner::MFPSTuner)
-    target_acc =  tuner.target_mfps / (tuner.target_mfps  + 1) #TODO: compute once and store in algorithm struct
+    target_acc =  tuner.tuning_convergence_check.target_acc #TODO: compute once and store in algorithm struct
     
     #n_acc_arr = ecmc_tuner_state.n_acc_arr
     #steps = ecmc_tuner_state.n_steps
@@ -158,7 +160,8 @@ function adapt_delta(adaption_scheme::GoogleAdaption, delta, ecmc_tuner_state, t
         eval_steps = 240
 
         acc_array = ecmc_tuner_state.acc_C
-        target_acc =  tuner.target_mfps / (tuner.target_mfps  + 1)
+        #target_acc =  tuner.target_mfps / (tuner.target_mfps  + 1)
+        #target_acc =  tuner.tuning_convergence_check.target_acc
 
         if ecmc_tuner_state.n_steps > eval_steps
             current_acc = (acc_array[end]- acc_array[end-eval_steps])/eval_steps
