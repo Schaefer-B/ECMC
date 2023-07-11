@@ -17,7 +17,7 @@ function mvnormal(dimension)
     end 
 
     prior = BAT.NamedTupleDist(
-        a = Uniform.(-10*σ, 10*σ)
+        a = Uniform.(-5*σ, 5*σ)
     )
     return likelihood, prior
 end

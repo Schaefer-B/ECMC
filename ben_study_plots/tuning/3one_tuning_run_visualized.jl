@@ -7,6 +7,7 @@ using ForwardDiff
 using InverseFunctions
 using DensityInterface
 using BenchmarkTools
+using HypothesisTests
 
 
 
@@ -14,10 +15,10 @@ using BenchmarkTools
 include("../test_distributions.jl")
 
 #-----------------
-
-likelihood, prior = funnel(2048)
+dims = 30
+likelihood, prior = mvnormal(dims)
 posterior = PosteriorMeasure(likelihood, prior);
-logdensityof(posterior, rand(prior))
+
 
 
 #--------------------------
@@ -120,34 +121,107 @@ ENV["JULIA_DEBUG"] = "BAT"
 
 algorithm = ECMCSampler(
     trafo = PriorToUniform(),
-    nsamples= 1*10^6,
+    nsamples= 2*10^5,
     nburnin = 0,
-    nchains = 2,
-    chain_length=8, 
-    remaining_jumps_before_refresh=50,
+    nchains = 4,
+    chain_length=5, 
+    remaining_jumps_before_refresh=100,
     step_amplitude = 0.1,
     factorized = false,
-    step_var=0.1,
-    variation_type = UniformVariation(),
+    step_var=0.05,
+    variation_type = NormalVariation(),
     direction_change = StochasticReflectDirection(),
-    tuning = MFPSTuner(target_mfps=5, adaption_scheme=GoogleAdaption(automatic_adjusting=true), max_n_steps = 2*10^4, starting_alpha=0.1),
+    tuning = MFPSTuner(target_mfps=3, adaption_scheme=GoogleAdaption(automatic_adjusting=true), max_n_steps = 2*10^4, starting_alpha=0.1),
 );
 
 #state = sample.ecmc_state[1].n_acc/sample.ecmc_state[1].n_steps
 
-sample = bat_sample(posterior, algorithm)
-samples = sample.result;
+run_time = @elapsed(ecmcsample = bat_sample(posterior, algorithm))
+ecmc_samples = ecmcsample.result
+
+mean(samples)
+std(samples)
 
 tuning_state = sample.ecmc_tuning_state[1] # tuning state for chain 1
 state = sample.ecmc_state[1]
 
 plot(samples, nbins=100)
+using LaTeXStrings
 plot(
-    samples, (:(a[1]), :(a[2])),
-    mean = true, std = true, globalmode = true, marginalmode = true,
-    nbins = 50, title = "a1 and a2 test"
+	ecmc_samples;
+    vsel=collect(1:3),
+	bins = 200,
+    mean=true,
+    std=false,
+    globalmode=false,
+    marginalmode=false,
+    #diagonal = Dict(),
+    #upper = Dict(),
+    #lower = Dict(),
+    vsel_label = [L"Θ_1", L"Θ_2", L"Θ_3"]
 )
 
+
+# TEST START
+using StatsBase
+nsamples = 2*10^5
+nchains = 4
+algo = IIDSampling(nsamples=nchains*nsamples)
+μ = fill(0.0, dims)
+σ = fill(1.0, dims)
+iid_sample = bat_sample(MvNormal(μ,σ), algo)
+iid_samples = iid_sample.result.v
+t_samples = ecmc_samples.v.a
+
+isamples = iid_sample.result
+
+mean(iid_samples)
+std(iid_samples)
+
+ks = []
+ad = []
+pchi = []
+for dim in 1:dims
+    marginal_samples = [t_samples[i][dim] for i=eachindex(t_samples)]
+    iid_marginal_samples = [iid_samples[i][dim] for i=eachindex(iid_samples)]
+
+    #bin_start = min(minimum(marginal_samples), minimum(iid_marginal_samples))
+    #bin_end = max(maximum(marginal_samples), maximum(iid_marginal_samples))
+    #nbins = 200
+    #bin_width = (bin_end - bin_start)/nbins
+
+    #samples_hist = fit(Histogram, marginal_samples,bin_start:bin_width:bin_end).weights
+    #iid_samples_hist = fit(Histogram, iid_marginal_samples,bin_start:bin_width:bin_end).weights
+
+    #samples_cdf = [sum(samples_hist[1:i]) for i=eachindex(samples_hist)]/length(samples_hist)
+    #iid_samples_cdf = [sum(iid_samples_hist[1:i]) for i=eachindex(iid_samples_hist)]/length(iid_samples_hist)
+
+    #p1 = pvalue(ApproximateTwoSampleKSTest(marginal_samples, iid_marginal_samples))
+    p1 = pvalue(ApproximateTwoSampleKSTest(marginal_samples, iid_marginal_samples))
+    push!(ks, p1)
+    p2 = pvalue(OneSampleADTest(marginal_samples, Normal(0.,1.)))
+    #p2 = pvalue(OneSampleADTest(samples_cdf, Normal(0.,1.)))
+    push!(ad, p2)
+    #p = pvalue(KSampleADTest(marginal_samples, iid_marginal_samples))
+
+
+    #p3 = pvalue(ChisqTest(samples_hist, iid_samples_hist))
+    #push!(pchi, p3)
+end
+bcom = BAT.bat_compare(ecmc_samples, isamples).result
+ks_com = bcom.ks_p_values
+s = iid_samples.v
+iid_marginal_samples = [s[i][1] for i=eachindex(s)]
+p = pvalue(KSampleADTest(iid_marginal_samples, iid_marginal_samples))
+
+ks
+ad
+plot(fit(Histogram, ks, 0:0.05:1))
+plot(fit(Histogram, ks_com, 0:0.05:1))
+plot(fit(Histogram, ad, 0:0.05:1))
+pchi
+#c = confint(ChisqTest(h1.weights, h2.weights))
+# TEST END
 SampledDensity(posterior, samples)
 
 mean(abs.(mean(samples).a))
@@ -246,7 +320,7 @@ samples = sample.result;
 
 
 #comparison to mcmc
-mcmc_sample = bat_sample(posterior, MCMCSampling(mcalg = MetropolisHastings(), nsteps = 10^7, nchains = 2))
+mcmc_sample = bat_sample(posterior, MCMCSampling(mcalg = MetropolisHastings(), nsteps = 2*10^5, nchains = 4))
 mcmc_samples = mcmc_sample.result
 plot(mcmc_samples)
 bat_eff_sample_size(mcmc_samples).result.a
