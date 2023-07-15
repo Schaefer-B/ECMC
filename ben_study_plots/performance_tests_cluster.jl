@@ -11,9 +11,11 @@ using FileIO
 using LaTeXStrings
 #using HypothesisTests
 
-include("../ecmc.jl")
+include("/net/e4-nfs-home.e4.physik.tu-dortmund.de/home/bschaefer/performance_tests/ecmc_cluster.jl")
 
-
+#anymeasureordensity => 
+#salvatore lacanina ceph, arbeiten, bachelorarbeiten
+#willy oder robin bachelorarbeiten
 
 # IMPORTANT:
 # no hmc states whatsover rn
@@ -52,7 +54,7 @@ end
     ntunings_not_converged
     step_variance
     variance_algorithm
-    MFPS_value
+    target_acc_value
     jumps_before_sample::Int64
     jumps_before_refresh::Int64
 
@@ -76,7 +78,7 @@ end
     ntunings_not_converged
     step_variance
     variance_algorithm
-    MFPS_value
+    target_acc_value
     jumps_before_sample::Int64
     jumps_before_refresh::Int64
 
@@ -138,25 +140,25 @@ function get_posterior(distribution, dimension)
     return posterior
 end
 
-#function get_posterior_dist(target_distribution::MvNormal, dimension)
-#    D = dimension
-#    μ = fill(0.0, D)
-#    σ = fill(1.0, D)
-#    dist = target_distribution(μ, σ)
-#    likelihood = let D = D, parameters = parameters
-#        logfuncdensity(params -> begin
-#
-#            return logpdf(dist, params.a)
-#        end)
-#    end 
+function get_posterior_dist(target_distribution::Type{MvNormal}, dimension)
+    D = dimension
+    μ = fill(0.0, D)
+    σ = fill(1.0, D)
+    dist = target_distribution(μ, σ)
+    likelihood = let dist=dist
+        logfuncdensity(params -> begin
 
-#    prior = BAT.NamedTupleDist(
-#        a = Uniform.(-10*σ, 10*σ)
-#    )
+            return logpdf(dist, params.a)
+        end)
+    end 
 
-#    posterior = PosteriorMeasure(likelihood, prior)
-#    return posterior, dist
-#end
+    prior = BAT.NamedTupleDist(
+        a = Uniform.(-10*σ, 10*σ)
+    )
+
+    posterior = PosteriorMeasure(likelihood, prior)
+    return posterior, dist
+end
 
 #---------------------------------
 
@@ -173,7 +175,7 @@ function create_algorithm(p_state::ECMCPerformanceState)
         step_var = p_state.step_variance,
         variation_type = p_state.variance_algorithm,
         direction_change = p_state.direction_change_algorithm,
-        tuning = MFPSTuner(target_mfps=p_state.MFPS_value, adaption_scheme=p_state.adaption_scheme, max_n_steps = p_state.tuning_max_n_steps, starting_alpha=0.1),
+        tuning = MFPSTuner(target_acc=p_state.target_acc_value, adaption_scheme=p_state.adaption_scheme, max_n_steps = p_state.tuning_max_n_steps, starting_alpha=0.1),
     )
 
     first = ECMCSampler(
@@ -188,7 +190,7 @@ function create_algorithm(p_state::ECMCPerformanceState)
         step_var = p_state.step_variance,
         variation_type = p_state.variance_algorithm,
         direction_change = p_state.direction_change_algorithm,
-        tuning = MFPSTuner(target_mfps=p_state.MFPS_value, adaption_scheme=p_state.adaption_scheme, max_n_steps = p_state.tuning_max_n_steps, starting_alpha=0.1),
+        tuning = MFPSTuner(target_acc=p_state.target_acc_value, adaption_scheme=p_state.adaption_scheme, max_n_steps = p_state.tuning_max_n_steps, starting_alpha=0.1),
     )
 
     return algorithm, first
@@ -325,7 +327,7 @@ function get_residual_values(samples, iid_samples)
 end
 
 
-function calculate_test_measures(samples, nsamples, nchains, sample_time)
+function calculate_test_measures(samples, effective_sample_size, nsamples, nchains, sample_time, dist)
 
     nsamples_iid = nsamples * nchains
     samples = samples
@@ -340,7 +342,7 @@ function calculate_test_measures(samples, nsamples, nchains, sample_time)
     chisq_values, normalized_residuals = get_residual_values(samples, iid_samples)
 
     t = TestMeasuresStruct(
-        effective_sample_size = p_state.effective_sample_size,
+        effective_sample_size = effective_sample_size,
         ks_p_values = ks_p_values,
         chisq_values = chisq_values,
         normalized_residuals = normalized_residuals,
@@ -373,7 +375,7 @@ function create_result_state(p_state::ECMCPerformanceState)
     ntunings_not_converged = p_state.ntunings_not_converged,
     step_variance = p_state.step_variance,
     variance_algorithm = string(p_state.variance_algorithm),
-    MFPS_value = p_state.MFPS_value,
+    target_acc_value = p_state.target_acc_value,
     jumps_before_sample = p_state.jumps_before_sample,
     jumps_before_refresh = p_state.jumps_before_refresh,
 
@@ -413,7 +415,7 @@ end
 
 function one_state_run(p_state, runs=1, start_id=1, save_all_samples=false)
 
-    posterior = get_posterior(p_state.target_distribution, p_state.dimension)
+    posterior, dist = get_posterior_dist(p_state.target_distribution, p_state.dimension)
 
     algorithm, first_run_algo = create_algorithm(p_state)
 
@@ -435,14 +437,16 @@ function one_state_run(p_state, runs=1, start_id=1, save_all_samples=false)
             result_state.effective_sample_size = []
         end
 
-        testmeasures = calculate_test_measures(p_state.samples, p_state.nsamples, p_state.nchains, sample_time)
-        sample_plot = plot_samples(p_state.samples)
-
+        testmeasures = calculate_test_measures(p_state.samples, p_state.effective_sample_size ,p_state.nsamples, p_state.nchains, sample_time, dist)
+        if run_id == start_id
+            sample_plot = plot_samples(p_state.samples)
+            save_sample_plot(p_state, sample_plot, run_id)
+        end
         p_state.samples = []
         p_state.effective_sample_size = []
 
         save_test_measures(p_state, testmeasures, run_id)
-        save_sample_plot(p_state, sample_plot, run_id)
+        
     end
 
 end
@@ -488,9 +492,9 @@ end
 #----------------saving functions-------------
 
 function save_state(p_state::ECMCResultState, run_id=1)
-    location = "ben_study_plots/saved_performance_test_result_states/"
+    location = "/net/e4-nfs-home.e4.physik.tu-dortmund.de/home/bschaefer/performance_tests/"
     sampler = "ecmc/"
-    name = string(p_state.target_distribution, p_state.dimension,"D_", p_state.direction_change_algorithm, p_state.MFPS_value, "MFPS", p_state.jumps_before_refresh, "jbr")
+    name = string(p_state.target_distribution, p_state.dimension,"D_", p_state.direction_change_algorithm, p_state.target_acc_value, "target_acc_", p_state.jumps_before_refresh, "jbr")
     name_add = string("_", run_id)
     extension = ".jld2"
     full_name = string(location,sampler,name,name_add,extension)
@@ -499,10 +503,10 @@ end
 
 
 function save_test_measures(p_state::ECMCPerformanceState, testmeasures, run_id=1) # to save: ess, mean(samples), std(samples), ks-test-p-values, ad-test-p-values, p-chi-p-values, time-elapsed, plot(samples 1-5d)
-    location = "ben_study_plots/saved_performance_test_result_states/"
+    location = "/net/e4-nfs-home.e4.physik.tu-dortmund.de/home/bschaefer/performance_tests/"
     sampler = "ecmc/"
     location_add = "test_measures/"
-    name = string(p_state.direction_change_algorithm, p_state.target_distribution, p_state.dimension,"D_", p_state.MFPS_value, "MFPS_", p_state.jumps_before_refresh, "jbr_", p_state.nsamples, "samples_", p_state.nchains, "nchains")
+    name = string(p_state.direction_change_algorithm, p_state.target_distribution, p_state.dimension,"D_", p_state.target_acc_value, "target_acc_", p_state.jumps_before_refresh, "jbr_", p_state.nsamples, "samples_", p_state.nchains, "nchains")
     name_add = string("_", run_id)
     extension = ".jld2"
     full_name = string(location,sampler,location_add,name,name_add,extension)
@@ -510,10 +514,10 @@ function save_test_measures(p_state::ECMCPerformanceState, testmeasures, run_id=
 end
 
 function save_test_measures(p_state::MCMCPerformanceState, testmeasures, run_id=1) 
-    location = "ben_study_plots/saved_performance_test_result_states/"
+    location = "/net/e4-nfs-home.e4.physik.tu-dortmund.de/home/bschaefer/performance_tests/"
     sampler = "mcmc/"
     location_add = "test_measures/"
-    name = string(p_state.target_distribution, p_state.dimension,"D_", p_state.nsamples, "samples_", p_state.nchains, "nchains")
+    name = string(p_state.direction_change_algorithm, p_state.target_distribution, p_state.dimension,"D_", p_state.target_acc_value, "target_acc_", p_state.jumps_before_refresh, "jbr_", p_state.nsamples, "samples_", p_state.nchains, "nchains")
     name_add = string("_", run_id)
     extension = ".jld2"
     full_name = string(location,sampler,location_add,name,name_add,extension)
@@ -521,14 +525,15 @@ function save_test_measures(p_state::MCMCPerformanceState, testmeasures, run_id=
 end
 
 
-function save_sample_plot(p_state::ECMCPerformanceState, sample_plot)
-    location = "ben_study_plots/saved_performance_test_result_states/"
+function save_sample_plot(p_state::ECMCPerformanceState, sample_plot, run_id=1)
+    location = "/net/e4-nfs-home.e4.physik.tu-dortmund.de/home/bschaefer/performance_tests/"
     sampler = "ecmc/"
     location_add = "sample_plots/"
-    name = string(p_state.direction_change_algorithm, p_state.target_distribution, p_state.dimension,"D_", p_state.MFPS_value, "MFPS_", p_state.jumps_before_refresh, "jbr_", p_state.nsamples, "samples_", p_state.nchains, "nchains")
+    name = string(p_state.direction_change_algorithm, p_state.target_distribution, p_state.dimension,"D_", p_state.target_acc_value, "target_acc_", p_state.jumps_before_refresh, "jbr_", p_state.nsamples, "samples_", p_state.nchains, "nchains")
     name_add = string("_", run_id)
-    full_name = string(location,sampler,location_add,name,name_add)
-    png(sample_plot, full_name)
+    extension = ".png"
+    full_name = string(location,sampler,location_add,name,name_add,extension)
+    savefig(sample_plot, full_name)
 end
 
 

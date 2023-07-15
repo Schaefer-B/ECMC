@@ -12,7 +12,7 @@ using StatsBase
 using FileIO
 
 include("../ecmc.jl")
-include("test_distributions.jl")
+#include("test_distributions.jl")
 
 ENV["JULIA_DEBUG"] = "BAT"
 
@@ -21,6 +21,7 @@ ENV["JULIA_DEBUG"] = "BAT"
 # no hmc states whatsover rn
 # create_result_state for hmc states is incomplete
 # create_algorithm for hmc states missing as well
+
 
 
 #-------------structs-----------------
@@ -120,6 +121,9 @@ end
 
 #-------------needed functions----------
 function get_posterior(distribution, dimension)
+    
+
+
     likelihood, prior = distribution(dimension)
     posterior = PosteriorMeasure(likelihood, prior)
     return posterior
@@ -553,15 +557,15 @@ end
 
 
 #----------------------everything that should be looped over--------------
-runs = 10
+runs = 1
 #ecmc state stuff:
 nsamples = 2*10^5
 nburnin = 0
 nchains = [4]
 tuning_max_n_steps = 3*10^4
 
-distributions = [mvnormal]
-dimensions = [2, 32]
+distributions = []
+dimensions = [1, 10, 50, 100]
 adaption_schemes = [GoogleAdaption(automatic_adjusting=true)]
 direction_change_algorithms = [RefreshDirection(), ReverseDirection(), GradientRefreshDirection(), ReflectDirection(), StochasticReflectDirection()]
 direction_change_algorithms = [ReflectDirection()]
@@ -569,10 +573,10 @@ direction_change_algorithms = [StochasticReflectDirection()]
 
 start_deltas = [10^-1]
 step_variances = [0.1]
-variance_algorithms = [NoVariation()]
-MFPS_values = [3]
-jumps_before_sample = [10]
-jumps_before_refresh = [100, 1000, 10000]
+variance_algorithms = [NormalVariation()]# evtl checken
+MFPS_values = [1]
+jumps_before_sample = [5] # checken
+jumps_before_refresh = [100]
 
 
 #mcmc state stuff:
@@ -665,7 +669,22 @@ plot_mfps_tests(ecmc_p_states, runs)
 plot_jbr_tests(ecmc_p_states, runs)
 
 
-a = [1]
+
+results = [load_state(ecmc_p_states[i]) for i=eachindex(ecmc_p_states)]
+
+for i in eachindex(results)
+    ess_min, ess_max, ess_mean = min_max_mean_ess(results[i].effective_sample_size)
+    println()
+    println(results[i].dimension, "D ", results[i].target_distribution)
+    println("   ESS min = ", ess_min)
+    println("   ESS max = ", ess_max)
+    println("   ESS mean = ", ess_mean)
+    println("   samples mean diff to true mean = ", mean(abs.(mean(results[i].samples).a)))
+    println("   samples mean diff to true std = ", mean(abs.(std(results[i].samples).a - fill(1.,results[i].dimension))))
+    println()
+end
+
+a
 #-----------results--------------
 
 # REFLECT AND STOCHASTICREFLECT PERFOM WAY BETTER AT HIGHER DIMENSIONS
@@ -728,6 +747,33 @@ start_deltas = [10^-1]
 step_variances = [0.1]
 variance_algorithms = [NoVariation()]
 MFPS_values = [1,2,3,4,5]
+jumps_before_sample = [10]
+jumps_before_refresh = [100]
+
+
+
+
+
+
+
+# PERFORMANCE TESTS SETTINGS:
+# REFLECT:
+runs = 1
+#ecmc state stuff:
+nsamples = 2*10^5
+nburnin = 0
+nchains = [4]
+tuning_max_n_steps = 3*10^4
+
+distributions = [mvnormal]
+dimensions = [1, 10, 50, 100]
+adaption_schemes = [GoogleAdaption(automatic_adjusting=true)]
+direction_change_algorithms = [ReflectDirection()]
+
+start_deltas = [10^-1]
+step_variances = [0.1]
+variance_algorithms = [NoVariation()]
+MFPS_values = [1]
 jumps_before_sample = [10]
 jumps_before_refresh = [100]
 

@@ -1,43 +1,27 @@
 
-include("performance_tests_cluster.jl")
+include("/net/e4-nfs-home.e4.physik.tu-dortmund.de/home/bschaefer/performance_tests/performance_tests_cluster.jl")
 
-function mvnormal(dimension)
-    D = dimension
-    μ = fill(0.0, D)
-    σ = fill(1.0, D) #collect(range(1, 10, D))
 
-    likelihood = let D = D, μ = μ, σ = σ
-        logfuncdensity(params -> begin
-
-            return logpdf(MvNormal(μ, σ), params.a)
-        end)
-    end 
-
-    prior = BAT.NamedTupleDist(
-        a = Uniform.(-5*σ, 5*σ)
-    )
-    return likelihood, prior
-end
-
+#Input           =   /net/e4-nfs-home.e4.physik.tu-dortmund.de/home/bschaefer/performance_tests/performance_tests_run.jl
 
 #----------------------everything that should be looped over--------------
-runs = 1
+runs = 10
 #ecmc state stuff:
 nsamples = 1*10^6
 nburnin = 0
 nchains = [4]
 tuning_max_n_steps = 3*10^4
 
-distributions = [mvnormal]
-dimensions = [10]
+distributions = [MvNormal]
+dimensions = [32]
 adaption_schemes = [GoogleAdaption(automatic_adjusting=true)]
-#direction_change_algorithms = [RefreshDirection(), ReverseDirection(), GradientRefreshDirection(), ReflectDirection(), StochasticReflectDirection()]
-direction_change_algorithms = [RefreshDirection(), ReflectDirection(), StochasticReflectDirection()]
+direction_change_algorithms = [RefreshDirection(), ReverseDirection(), GradientRefreshDirection(), ReflectDirection(), StochasticReflectDirection()]
+#direction_change_algorithms = [RefreshDirection()]
 
 start_deltas = [10^-1]
-step_variances = [0.1]
+step_variances = [0.05]
 variance_algorithms = [NormalVariation()]# evtl checken
-MFPS_values = [1]
+target_acc_values = [0.23, 0.4, 0.6, 0.8]
 jumps_before_sample = [5] # checken
 jumps_before_refresh = [100]
 
@@ -76,7 +60,7 @@ ecmc_p_states = [ECMCPerformanceState(
     ntunings_not_converged = 0,
     step_variance = step_variances[s_var],
     variance_algorithm = variance_algorithms[v_algo],
-    MFPS_value = MFPS_values[mfp],
+    target_acc_value = target_acc_values[tacc],
     jumps_before_sample = jumps_before_sample[j_sam], 
     jumps_before_refresh = jumps_before_refresh[j_ref],
 
@@ -90,7 +74,7 @@ ecmc_p_states = [ECMCPerformanceState(
         sdelta=eachindex(start_deltas), 
         s_var=eachindex(step_variances), 
         v_algo=eachindex(variance_algorithms),
-        mfp=eachindex(MFPS_values), 
+        tacc=eachindex(target_acc_values), 
         j_sam=eachindex(jumps_before_sample), 
         j_ref=eachindex(jumps_before_refresh)
 ]

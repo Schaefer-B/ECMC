@@ -1,0 +1,11 @@
+Executable      =   /net/e4-nfs-home.e4.physik.tu-dortmund.de/home/bschaefer/julia.sh
+Log             =   /net/e4-nfs-home.e4.physik.tu-dortmund.de/home/bschaefer/log_condor/performance_tests_01.log
+Error           =   /net/e4-nfs-home.e4.physik.tu-dortmund.de/home/bschaefer/error_condor/performance_tests_01.err
+Output          =   /net/e4-nfs-home.e4.physik.tu-dortmund.de/home/bschaefer/output_condor/performance_tests_01.out
+universe        =   vanilla
+request_cpus    =   4
+request_memory  =   32GB
+notify_user     =   benjamin.schaefer@tu-dortmund.de
+notification    =   Always
+requirements = (machine == "e4wn20.e4.physik.tu-dortmund.de") || (machine == "e4wn20")
+Queue
