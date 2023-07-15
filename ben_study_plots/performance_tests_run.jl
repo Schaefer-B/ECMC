@@ -1,5 +1,6 @@
 
 include("/net/e4-nfs-home.e4.physik.tu-dortmund.de/home/bschaefer/performance_tests/performance_tests_cluster.jl")
+#include("performance_tests_cluster.jl")
 
 
 #Input           =   /net/e4-nfs-home.e4.physik.tu-dortmund.de/home/bschaefer/performance_tests/performance_tests_run.jl
@@ -22,12 +23,13 @@ start_deltas = [10^-1]
 step_variances = [0.05]
 variance_algorithms = [NormalVariation()]# evtl checken
 target_acc_values = [0.23, 0.4, 0.6, 0.8]
+#target_acc_values = [0.5]
 jumps_before_sample = [5] # checken
 jumps_before_refresh = [100]
 
 
 #mcmc state stuff:
-mcmc_distributions = [mvnormal]
+mcmc_distributions = [MvNormal]
 mcmc_dimensions = [2]
 mcmc_nsamples = 1*10^6
 nburninsteps_per_cycle = 10^5
@@ -37,8 +39,6 @@ mcmc_nchains = 4
 
 
 #hmc state stuff:
-
-
 
 
 

@@ -12,6 +12,7 @@ using LaTeXStrings
 #using HypothesisTests
 
 include("/net/e4-nfs-home.e4.physik.tu-dortmund.de/home/bschaefer/performance_tests/ecmc_cluster.jl")
+#include("../ecmc_cluster.jl")
 
 #anymeasureordensity => 
 #salvatore lacanina ceph, arbeiten, bachelorarbeiten
@@ -498,7 +499,7 @@ function save_state(p_state::ECMCResultState, run_id=1)
     name_add = string("_", run_id)
     extension = ".jld2"
     full_name = string(location,sampler,name,name_add,extension)
-    save(full_name, Dict("state" => p_state))
+    save(full_name, Dict("state" => p_state), compression = true)
 end
 
 
@@ -510,7 +511,7 @@ function save_test_measures(p_state::ECMCPerformanceState, testmeasures, run_id=
     name_add = string("_", run_id)
     extension = ".jld2"
     full_name = string(location,sampler,location_add,name,name_add,extension)
-    save(full_name, Dict("testmeasurestruct" => testmeasures))
+    save(full_name, Dict("testmeasurestruct" => testmeasures), compression = true)
 end
 
 function save_test_measures(p_state::MCMCPerformanceState, testmeasures, run_id=1) 
@@ -521,7 +522,7 @@ function save_test_measures(p_state::MCMCPerformanceState, testmeasures, run_id=
     name_add = string("_", run_id)
     extension = ".jld2"
     full_name = string(location,sampler,location_add,name,name_add,extension)
-    save(full_name, Dict("testmeasurestruct" => testmeasures))
+    save(full_name, Dict("testmeasurestruct" => testmeasures), compression = true)
 end
 
 

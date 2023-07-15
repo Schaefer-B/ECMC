@@ -65,7 +65,7 @@ function idontwannacalliteverytime(title = "Test", everyaxis=false)
 
     plot_acceptance = plot(title=title)
     plot!(new_acc_C, lw=2, label="Current ratio", ylabel="Acceptance ratio")
-    target_acc = algorithm.tuning.target_mfps/(algorithm.tuning.target_mfps+1)
+    target_acc = algorithm.tuning.tuning_convergence_check.target_acc
     plot!([target_acc], st=:hline, lw=2, label="Target ratio")
     #plot!(ylims=(0.6, 1.))
     if everyaxis == true
@@ -121,17 +121,17 @@ ENV["JULIA_DEBUG"] = "BAT"
 
 algorithm = ECMCSampler(
     trafo = PriorToUniform(),
-    nsamples= 2*10^5,
+    nsamples= 2*10^4,
     nburnin = 0,
     nchains = 4,
     chain_length=5, 
     remaining_jumps_before_refresh=100,
     step_amplitude = 0.1,
     factorized = false,
-    step_var=0.05,
+    step_var=0.1,
     variation_type = NormalVariation(),
-    direction_change = StochasticReflectDirection(),
-    tuning = MFPSTuner(target_mfps=3, adaption_scheme=GoogleAdaption(automatic_adjusting=true), max_n_steps = 2*10^4, starting_alpha=0.1),
+    direction_change = RefreshDirection(),
+    tuning = MFPSTuner(target_acc=0.3, adaption_scheme=GoogleAdaption(automatic_adjusting=true), max_n_steps = 2*10^4, starting_alpha=0.1),
 );
 
 #state = sample.ecmc_state[1].n_acc/sample.ecmc_state[1].n_steps
@@ -139,11 +139,12 @@ algorithm = ECMCSampler(
 run_time = @elapsed(ecmcsample = bat_sample(posterior, algorithm))
 ecmc_samples = ecmcsample.result
 
-mean(samples)
-std(samples)
 
-tuning_state = sample.ecmc_tuning_state[1] # tuning state for chain 1
-state = sample.ecmc_state[1]
+tuning_state = ecmcsample.ecmc_tuning_state[1] # tuning state for chain 1
+state = ecmcsample.ecmc_state[1]
+
+tuner_plot = idontwannacalliteverytime("Google tuning with adjusting, Funnel 2048D", true)
+
 
 plot(samples, nbins=100)
 using LaTeXStrings
