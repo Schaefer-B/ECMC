@@ -16,13 +16,14 @@ tuning_max_n_steps = 3*10^4
 distributions = [MvNormal]
 dimensions = [32]
 adaption_schemes = [GoogleAdaption(automatic_adjusting=true)]
-direction_change_algorithms = [RefreshDirection(), ReverseDirection(), GradientRefreshDirection(), ReflectDirection(), StochasticReflectDirection()]
+#direction_change_algorithms = [RefreshDirection(), ReverseDirection(), GradientRefreshDirection(), ReflectDirection(), StochasticReflectDirection()]
+direction_change_algorithms = [ReverseDirection(), GradientRefreshDirection(), ReflectDirection(), StochasticReflectDirection()]
 #direction_change_algorithms = [RefreshDirection()]
 
 start_deltas = [10^-1]
 step_variances = [0.05]
 variance_algorithms = [NormalVariation()]# evtl checken
-target_acc_values = [0.23, 0.4, 0.6, 0.8]
+target_acc_values = [0.8]
 #target_acc_values = [0.5]
 jumps_before_sample = [5] # checken
 jumps_before_refresh = [100]
@@ -78,6 +79,10 @@ ecmc_p_states = [ECMCPerformanceState(
         j_sam=eachindex(jumps_before_sample), 
         j_ref=eachindex(jumps_before_refresh)
 ]
+
+
+
+#---------------------------------------------------------
 
 
 mcmc_p_states = [MCMCPerformanceState(

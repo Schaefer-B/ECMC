@@ -1,4 +1,3 @@
-using Test
 using BAT
 using Plots
 using ValueShapes
@@ -7,15 +6,21 @@ using IntervalSets
 using ForwardDiff
 using InverseFunctions
 using DensityInterface
-using BenchmarkTools
 using StatsBase
+using JLD2
 using FileIO
+using LaTeXStrings
+using TranscodingStreams
+using CodecZlib
 
+#using HypothesisTests
+
+#include("/net/e4-nfs-home.e4.physik.tu-dortmund.de/home/bschaefer/performance_tests/ecmc_cluster.jl")
 include("../ecmc.jl")
-#include("test_distributions.jl")
 
-ENV["JULIA_DEBUG"] = "BAT"
-
+#anymeasureordensity => 
+#salvatore lacanina ceph, arbeiten, bachelorarbeiten
+#willy oder robin bachelorarbeiten
 
 # IMPORTANT:
 # no hmc states whatsover rn
@@ -23,9 +28,22 @@ ENV["JULIA_DEBUG"] = "BAT"
 # create_algorithm for hmc states missing as well
 
 
-
 #-------------structs-----------------
-@with_kw mutable struct ecmc_performance_state
+@with_kw mutable struct TestMeasuresStruct
+    effective_sample_size
+    ks_p_values # Kolmogorov Smirnov
+    chisq_values # can be used to calculate pearson chi square p-values, but also count as a measure on its own
+    normalized_residuals # normally distributed
+
+    samples_mode
+    samples_mean
+    samples_std
+
+    sample_time
+end
+
+
+@with_kw mutable struct ECMCPerformanceState
     target_distribution
     dimension::Int64
     nsamples::Int64
@@ -41,7 +59,7 @@ ENV["JULIA_DEBUG"] = "BAT"
     ntunings_not_converged
     step_variance
     variance_algorithm
-    MFPS_value
+    target_acc_value
     jumps_before_sample::Int64
     jumps_before_refresh::Int64
 
@@ -49,7 +67,7 @@ ENV["JULIA_DEBUG"] = "BAT"
     effective_sample_size
 end
 
-@with_kw mutable struct ecmc_result_state
+@with_kw mutable struct ECMCResultState
     target_distribution
     dimension::Int64
     nsamples::Int64
@@ -65,7 +83,7 @@ end
     ntunings_not_converged
     step_variance
     variance_algorithm
-    MFPS_value
+    target_acc_value
     jumps_before_sample::Int64
     jumps_before_refresh::Int64
 
@@ -73,7 +91,7 @@ end
     effective_sample_size
 end
 
-@with_kw mutable struct mcmc_performance_state
+@with_kw mutable struct MCMCPerformanceState
     target_distribution
     dimension::Int64
     nsamples::Int64
@@ -85,7 +103,7 @@ end
     effective_sample_size
 end
 
-@with_kw mutable struct mcmc_result_state
+@with_kw mutable struct MCMCResultState
     target_distribution
     dimension::Int64
     nsamples::Int64
@@ -97,7 +115,7 @@ end
     effective_sample_size
 end
 
-@with_kw mutable struct hmc_performance_state
+@with_kw mutable struct HMCPerformanceState
     target_distribution
     dimension::Int64
     nsamples::Int64
@@ -107,7 +125,7 @@ end
     effective_sample_size
 end
 
-@with_kw mutable struct hmc_result_state
+@with_kw mutable struct HMCResultState
     target_distribution
     dimension::Int64
     nsamples::Int64
@@ -121,33 +139,35 @@ end
 
 #-------------needed functions----------
 function get_posterior(distribution, dimension)
-    
-
-
     likelihood, prior = distribution(dimension)
     posterior = PosteriorMeasure(likelihood, prior)
+
     return posterior
 end
 
+function get_posterior_dist(target_distribution::Type{MvNormal}, dimension)
+    D = dimension
+    μ = fill(0.0, D)
+    σ = fill(1.0, D)
+    dist = target_distribution(μ, σ)
+    likelihood = let dist=dist
+        logfuncdensity(params -> begin
 
-function min_max_mean_ess(effective_sample_size_arr)
-    a = effective_sample_size_arr
+            return logpdf(dist, params.a)
+        end)
+    end 
 
-    if typeof(a[1]) == typeof(1.)
-        a = [a]
-    end
+    prior = BAT.NamedTupleDist(
+        a = Uniform.(-10*σ, 10*σ)
+    )
 
-    min_ess = mean(x -> minimum(x), a)
-    max_ess = mean(x -> maximum(x), a)
-    mean_ess = mean(x -> mean(x), a)
-
-    return min_ess, max_ess, mean_ess
+    posterior = PosteriorMeasure(likelihood, prior)
+    return posterior, dist
 end
-
 
 #---------------------------------
 
-function create_algorithm(p_state::ecmc_performance_state)
+function create_algorithm(p_state::ECMCPerformanceState)
     algorithm = ECMCSampler(
         trafo = PriorToUniform(),
         nsamples= p_state.nsamples,
@@ -160,12 +180,28 @@ function create_algorithm(p_state::ecmc_performance_state)
         step_var = p_state.step_variance,
         variation_type = p_state.variance_algorithm,
         direction_change = p_state.direction_change_algorithm,
-        tuning = MFPSTuner(target_mfps=p_state.MFPS_value, adaption_scheme=p_state.adaption_scheme, max_n_steps = p_state.tuning_max_n_steps, starting_alpha=0.1),
+        tuning = MFPSTuner(target_acc=p_state.target_acc_value, adaption_scheme=p_state.adaption_scheme, max_n_steps = p_state.tuning_max_n_steps, starting_alpha=0.1),
     )
-    return algorithm
+
+    first = ECMCSampler(
+        trafo = PriorToUniform(),
+        nsamples= 2,
+        nburnin = 0,
+        nchains = p_state.nchains,
+        chain_length = p_state.jumps_before_sample, 
+        remaining_jumps_before_refresh = p_state.jumps_before_refresh,
+        step_amplitude = p_state.start_delta,
+        factorized = false,
+        step_var = p_state.step_variance,
+        variation_type = p_state.variance_algorithm,
+        direction_change = p_state.direction_change_algorithm,
+        tuning = MFPSTuner(target_acc=p_state.target_acc_value, adaption_scheme=p_state.adaption_scheme, max_n_steps = p_state.tuning_max_n_steps, starting_alpha=0.1),
+    )
+
+    return algorithm, first
 end
 
-function create_algorithm(p_state::mcmc_performance_state)
+function create_algorithm(p_state::MCMCPerformanceState)
     algorithm = MCMCSampling(
         mcalg = MetropolisHastings(),
         nsteps = p_state.nsamples, 
@@ -173,8 +209,17 @@ function create_algorithm(p_state::mcmc_performance_state)
         burnin = MCMCMultiCycleBurnin(nsteps_per_cycle = p_state.nburninsteps_per_cycle, max_ncycles = p_state.nburnin_max_cycles),
         convergence = BrooksGelmanConvergence(),
         #init = MCMCChainPoolInit(nsteps_init = 1000),
-        )
-    return algorithm
+    )
+
+    first = MCMCSampling(
+        mcalg = MetropolisHastings(),
+        nsteps = 2, 
+        nchains = p_state.nchains,
+        burnin = MCMCMultiCycleBurnin(nsteps_per_cycle = p_state.nburninsteps_per_cycle, max_ncycles = p_state.nburnin_max_cycles),
+        convergence = BrooksGelmanConvergence(),
+        #init = MCMCChainPoolInit(nsteps_init = 1000),
+    )
+    return algorithm, first
 end
 
 
@@ -182,7 +227,7 @@ end
 #---------------------------------
 
 
-function run_sampling!(posterior, algorithm, p_state::ecmc_performance_state)
+function run_sampling!(posterior, algorithm, p_state::ECMCPerformanceState)
     sample = bat_sample(posterior, algorithm)
     samples = sample.result
 
@@ -204,7 +249,7 @@ function run_sampling!(posterior, algorithm, p_state::ecmc_performance_state)
 end
 
 
-function run_sampling!(posterior, algorithm, p_state::mcmc_performance_state)
+function run_sampling!(posterior, algorithm, p_state::MCMCPerformanceState)
     sample = bat_sample(posterior, algorithm)
     samples = sample.result
 
@@ -217,7 +262,7 @@ function run_sampling!(posterior, algorithm, p_state::mcmc_performance_state)
 end
 
 
-function run_sampling!(posterior, algorithm, p_state::hmc_performance_state)
+function run_sampling!(posterior, algorithm, p_state::HMCPerformanceState)
     sample = bat_sample(posterior, algorithm)
     samples = sample.result
 
@@ -232,10 +277,102 @@ end
 
 
 #---------------------------------
+function get_ks_p_values(samples, iid_samples)
+    compare_result = BAT.bat_compare(samples, iid_samples).result
+    ks_p_values = compare_result.ks_p_values
 
-function create_result_state(p_state::ecmc_performance_state)
-    println("create result state in ecmc")
-    r_state = ecmc_result_state(
+    return ks_p_values
+end
+
+
+function get_residual_values(samples, iid_samples)
+    samples = samples.v.a
+    iid_samples = iid_samples.v
+
+    dimensions = length(samples[1])
+
+    chisq_values = []
+    normalized_residuals = []
+
+    for d in 1:dimensions
+        marginal_samples = [samples[i][d] for i=eachindex(samples)]
+        iid_marginal_samples = [iid_samples[i][d] for i=eachindex(iid_samples)]
+
+
+        bin_start = min(minimum(marginal_samples), minimum(iid_marginal_samples))
+        bin_end = max(maximum(marginal_samples), maximum(iid_marginal_samples))
+        nbins = 2000
+        bin_width = (bin_end - bin_start)/nbins
+
+        samples_hist = fit(Histogram, marginal_samples, bin_start:bin_width:bin_end)
+        iid_samples_hist = fit(Histogram, iid_marginal_samples, bin_start:bin_width:bin_end)
+
+        samples_binned = samples_hist.weights
+        iid_samples_binned = iid_samples_hist.weights
+        
+        chisq_value = 0
+        for bin in eachindex(iid_samples_binned)
+            observed = samples_binned[bin]
+            expected = iid_samples_binned[bin]
+
+            if expected > 10
+                residual = (observed - expected)
+                standard_deviation = sqrt(expected)
+
+                chisq_value += (residual)^2 /expected
+
+                normalized_residual = residual/standard_deviation
+                push!(normalized_residuals, normalized_residual)
+            end
+        end
+        push!(chisq_values, chisq_value)  
+    end
+
+    chisq_values_arr = [chisq_values[i] for i=eachindex(chisq_values)]
+    normalized_residuals_arr = [normalized_residuals[i] for i=eachindex(normalized_residuals)]
+
+    return chisq_values_arr, normalized_residuals_arr
+end
+
+
+function calculate_test_measures(samples, effective_sample_size, nsamples, nchains, sample_time, dist)
+
+    nsamples_iid = nsamples * nchains
+    samples = samples
+    iid_sample = bat_sample(dist, IIDSampling(nsamples=nsamples_iid))
+    iid_samples = iid_sample.result
+
+    effective_sample_size_arr = [effective_sample_size[i] for i=eachindex(effective_sample_size)]
+
+    samples_mode = mode(samples)
+    samples_mode_arr = [samples_mode.a[i] for i = eachindex(samples_mode.a)]
+    samples_mean = mean(samples)
+    samples_mean_arr = [samples_mean.a[i] for i = eachindex(samples_mean.a)]
+    samples_std = std(samples)
+    samples_std_arr = [samples_std.a[i] for i = eachindex(samples_std.a)]
+
+    ks_p_values = get_ks_p_values(samples, iid_samples)
+    chisq_values, normalized_residuals = get_residual_values(samples, iid_samples)
+
+    t = TestMeasuresStruct(
+        effective_sample_size = effective_sample_size_arr,
+        ks_p_values = ks_p_values,
+        chisq_values = chisq_values,
+        normalized_residuals = normalized_residuals,
+        samples_mode = samples_mode_arr,
+        samples_mean = samples_mean_arr,
+        samples_std = samples_std_arr,
+        sample_time = sample_time,
+    )
+
+    return t
+end
+
+#---------------------------------
+
+function create_result_state(p_state::ECMCPerformanceState)
+    #println("create result state in ecmc")
+    r_state = ECMCResultState(
     target_distribution = string(p_state.target_distribution),
     dimension = p_state.dimension,
     nsamples = p_state.nsamples,
@@ -251,7 +388,7 @@ function create_result_state(p_state::ecmc_performance_state)
     ntunings_not_converged = p_state.ntunings_not_converged,
     step_variance = p_state.step_variance,
     variance_algorithm = string(p_state.variance_algorithm),
-    MFPS_value = p_state.MFPS_value,
+    target_acc_value = p_state.target_acc_value,
     jumps_before_sample = p_state.jumps_before_sample,
     jumps_before_refresh = p_state.jumps_before_refresh,
 
@@ -264,9 +401,9 @@ end
 
 
 
-function create_result_state(p_state::mcmc_performance_state)
-    println("create result state in mcmc")
-    r_state = mcmc_result_state(
+function create_result_state(p_state::MCMCPerformanceState)
+    #println("create result state in mcmc")
+    r_state = MCMCResultState(
     target_distribution = string(p_state.target_distribution),
     dimension = p_state.dimension,
     nsamples = p_state.nsamples,
@@ -282,56 +419,65 @@ function create_result_state(p_state::mcmc_performance_state)
 end
 
 
-function create_result_state(p_state::hmc_performance_state)
+function create_result_state(p_state::HMCPerformanceState)
 
     return r_state
 end
 
 #---------------------------------
 
-function one_state_run(p_state, runs=1, save_all_samples=false)
+function one_state_run(p_state, runs=1, start_id=1, save_all_samples=false)
 
-    posterior = get_posterior(p_state.target_distribution, p_state.dimension)
+    posterior, dist = get_posterior_dist(p_state.target_distribution, p_state.dimension)
 
-    algorithm = create_algorithm(p_state)
+    algorithm, first_run_algo = create_algorithm(p_state)
+
+    p_temp = p_state
+    temp_time = @elapsed(run_sampling!(posterior, first_run_algo, p_temp))
+
     
-    for run_id in 1:runs
-        println("Starting run $run_id for ", string(p_state.target_distribution, p_state.dimension,"D ", p_state.direction_change_algorithm))
-        run_sampling!(posterior, algorithm, p_state)
-        result_state = create_result_state(p_state)
-        println("Finished run $run_id for ", string(p_state.target_distribution, p_state.dimension,"D ", p_state.direction_change_algorithm))
-
-        if run_id == 1
-            save_state(result_state, run_id)
-        elseif save_all_samples == true
-            save_state(result_state, run_id)
-        end
-
-        save_effective_sample_size(result_state, run_id)
-        println("Saved run $run_id for ", string(p_state.target_distribution, p_state.dimension,"D ", p_state.direction_change_algorithm))
+    for run in 1:runs
+        run_id = run + start_id - 1
+        #println("Starting run $run_id for ", string(p_state.target_distribution, p_state.dimension,"D ", p_state.direction_change_algorithm))
+        sample_time = @elapsed(run_sampling!(posterior, algorithm, p_state))
+        #println("Finished run $run_id for ", string(p_state.target_distribution, p_state.dimension,"D ", p_state.direction_change_algorithm))
 
         
+        if save_all_samples == true
+            result_state = create_result_state(p_state)
+            save_state(result_state, run_id)
+            result_state.samples = []
+            result_state.effective_sample_size = []
+        end
+
+        testmeasures = calculate_test_measures(p_state.samples, p_state.effective_sample_size ,p_state.nsamples, p_state.nchains, sample_time, dist)
+        if run_id == start_id
+            sample_plot = plot_samples(p_state.samples)
+            save_sample_plot(p_state, sample_plot, run_id)
+        end
         p_state.samples = []
         p_state.effective_sample_size = []
-        println("Deleted the performance_state samples and ESS in $run_id for ", string(p_state.target_distribution, p_state.dimension,"D ", p_state.direction_change_algorithm))
+
+        save_test_measures(p_state, testmeasures, run_id)
+        
     end
 
 end
 
 
-function multiple_states_run(p_states, runs=1, save_all_samples=false)
-    println("Starting all runs over a perfomance_state array")
+function multiple_states_run(p_states, runs=1, start_id=1, save_all_samples=false)
+    #println("Starting all runs over a perfomance_state array")
     if p_states == []
         return []
     end
     nstates = length(p_states)
     #result_states = Vector{Any}(undef, nstates)
     for p_index in 1:nstates
-        println("Starting runs for performance_state $p_index")
-        one_state_run(p_states[p_index], runs, save_all_samples)
-        println("Finished runs for performance_state $p_index")
+        #println("Starting runs for performance_state $p_index")
+        one_state_run(p_states[p_index], runs, start_id, save_all_samples)
+        #println("Finished runs for performance_state $p_index")
     end
-    println("Finished all runs over a performance_state array")
+    #println("Finished all runs over a performance_state array")
 end
 
 
@@ -356,32 +502,52 @@ function all_states_run(ecmc_states, mcmc_states, hmc_states, runs)
 end
 
 
-
-
 #----------------saving functions-------------
 
-function save_state(p_state::ecmc_result_state, run_id=1)
-    location = "ben_study_plots/saved_performance_test_result_states/"
+function save_state(p_state::ECMCResultState, run_id=1)
+    location = "/net/e4-nfs-home.e4.physik.tu-dortmund.de/home/bschaefer/performance_tests/"
     sampler = "ecmc/"
-    name = string(p_state.target_distribution, p_state.dimension,"D_", p_state.direction_change_algorithm, p_state.MFPS_value, "MFPS", p_state.jumps_before_refresh, "jbr")
+    name = string(p_state.target_distribution, p_state.dimension,"D_", p_state.direction_change_algorithm, p_state.target_acc_value, "target_acc_", p_state.jumps_before_refresh, "jbr")
     name_add = string("_", run_id)
     extension = ".jld2"
     full_name = string(location,sampler,name,name_add,extension)
-    save(full_name, Dict("state" => p_state))
+    save(full_name, Dict("state" => p_state); compress = true)
 end
 
 
-function save_effective_sample_size(p_state::ecmc_result_state, run_id=1)
-    location = "ben_study_plots/saved_performance_test_result_states/"
+function save_test_measures(p_state::ECMCPerformanceState, testmeasures, run_id=1) # to save: ess, mean(samples), std(samples), ks-test-p-values, ad-test-p-values, p-chi-p-values, time-elapsed, plot(samples 1-5d)
+    location = "/net/e4-nfs-home.e4.physik.tu-dortmund.de/home/bschaefer/performance_tests/"
     sampler = "ecmc/"
-    location_add = "effective_sample_sizes_only/"
-    name = string(p_state.target_distribution, p_state.dimension,"D_", p_state.direction_change_algorithm, p_state.MFPS_value, "MFPS", p_state.jumps_before_refresh, "jbr")
+    location_add = "test_measures/"
+    name = string(p_state.direction_change_algorithm, p_state.target_distribution, p_state.dimension,"D_", p_state.target_acc_value, "target_acc_", p_state.jumps_before_refresh, "jbr_", p_state.nsamples, "samples_", p_state.nchains, "nchains")
     name_add = string("_", run_id)
     extension = ".jld2"
     full_name = string(location,sampler,location_add,name,name_add,extension)
-    save(full_name, Dict("effective_sample_size" => p_state.effective_sample_size))
+    save(full_name, Dict("testmeasurestruct" => testmeasures); compress = true)
 end
 
+function save_test_measures(p_state::MCMCPerformanceState, testmeasures, run_id=1) 
+    location = "/net/e4-nfs-home.e4.physik.tu-dortmund.de/home/bschaefer/performance_tests/"
+    sampler = "mcmc/"
+    location_add = "test_measures/"
+    name = string(p_state.direction_change_algorithm, p_state.target_distribution, p_state.dimension,"D_", p_state.target_acc_value, "target_acc_", p_state.jumps_before_refresh, "jbr_", p_state.nsamples, "samples_", p_state.nchains, "nchains")
+    name_add = string("_", run_id)
+    extension = ".jld2"
+    full_name = string(location,sampler,location_add,name,name_add,extension)
+    save(full_name, Dict("testmeasurestruct" => testmeasures); compress = true)
+end
+
+
+function save_sample_plot(p_state::ECMCPerformanceState, sample_plot, run_id=1)
+    location = "/net/e4-nfs-home.e4.physik.tu-dortmund.de/home/bschaefer/performance_tests/"
+    sampler = "ecmc/"
+    location_add = "sample_plots/"
+    name = string(p_state.direction_change_algorithm, p_state.target_distribution, p_state.dimension,"D_", p_state.target_acc_value, "target_acc_", p_state.jumps_before_refresh, "jbr_", p_state.nsamples, "samples_", p_state.nchains, "nchains")
+    name_add = string("_", run_id)
+    extension = ".png"
+    full_name = string(location,sampler,location_add,name,name_add,extension)
+    savefig(sample_plot, full_name)
+end
 
 
 function multi_save_states(state_arr)
@@ -391,390 +557,27 @@ function multi_save_states(state_arr)
 end
 
 
-function load_state(p_state::ecmc_performance_state, run_id=1)
-    location = "ben_study_plots/saved_performance_test_result_states/"
-    sampler = "ecmc/"
-    name = string(p_state.target_distribution, p_state.dimension,"D_", p_state.direction_change_algorithm, p_state.MFPS_value, "MFPS", p_state.jumps_before_refresh, "jbr")
-    name_add = string("_", run_id)
-    extension = ".jld2"
-    full_name = string(location,sampler,name,name_add,extension)
-    saved_state = load(full_name, "state")
-    return saved_state
-end
+#--------------------loading functions------------------
 
-
-
-function load_effective_sample_sizes(p_state::ecmc_performance_state, runs=1)
-    saved_ess = []
-
-    location = "ben_study_plots/saved_performance_test_result_states/"
-    sampler = "ecmc/"
-    location_add = "effective_sample_sizes_only/"
-    name = string(p_state.target_distribution, p_state.dimension,"D_", p_state.direction_change_algorithm, p_state.MFPS_value, "MFPS", p_state.jumps_before_refresh, "jbr")
-
-    for run_id in 1:runs
-        name_add = string("_", run_id)
-        extension = ".jld2"
-        full_name = string(location,sampler,location_add,name,name_add,extension)
-        ess = load(full_name, "effective_sample_size")
-        push!(saved_ess, ess)
-    end
-    return saved_ess
-end
 
 #----------------------plotting functions-----------------------------------
 
-function plot_mfps_tests(state_arr, runs)
 
-    gr(size=(1.3*850, 1.3*800), thickness_scaling = 1.5)
-
-    direction_algos_temp = [string(state_arr[i].direction_change_algorithm) for i=eachindex(state_arr)]
-    direction_algos = unique(direction_algos_temp)
-    
-
-    for dir_algo in direction_algos
-
-        dir_plot = plot(layout=(3,1))
-
-        direction_states = state_arr[findall(x -> string(x.direction_change_algorithm) == dir_algo ? true : false, state_arr)]
-        dimensions = unique([direction_states[i].dimension for i=eachindex(direction_states)])
-
-        
-        dir_plot = plot!(subplot=1, title=dir_algo, xlabel="MFPS values", ylabel="Minimum of ESS")
-        dir_plot = plot!(subplot=2, xlabel="MFPS values", ylabel="Maximum of ESS")
-        dir_plot = plot!(subplot=3, xlabel="MFPS values", ylabel="Mean of ESS")
-
-        for dimension in dimensions
-            states = direction_states[findall(x -> x.dimension == dimension ? true : false, direction_states)]
-            
-            x_values = []
-            min_ess_arr = []
-            max_ess_arr = []
-            mean_ess_arr = []
-            
-            for state in states
-                x = state.MFPS_value
-                state_ess = load_effective_sample_sizes(state, runs)
-                min_ess, max_ess, mean_ess = min_max_mean_ess(state_ess)
-                push!(min_ess_arr, min_ess)
-                push!(max_ess_arr, max_ess)
-                push!(mean_ess_arr, mean_ess)
-                push!(x_values, x)
-            end
-
-            println(string(dir_algo, " ",dimension,"D MvNormal"))
-            println(string("   Maximal ESS value for min(ESS): ", maximum(min_ess_arr)))
-            println(string("   Maximal ESS value for max(ESS): ", maximum(max_ess_arr)))
-            println(string("   Maximal ESS value for mean(ESS): ", maximum(mean_ess_arr)))
-
-
-            min_ess_arr = min_ess_arr ./(maximum(min_ess_arr))
-            max_ess_arr = max_ess_arr ./(maximum(max_ess_arr))
-            mean_ess_arr = mean_ess_arr ./(maximum(mean_ess_arr))
-            
-
-            dir_plot = plot!(x_values, min_ess_arr, subplot=1, label=string(dimension, "D", " Multivariate Normal"), lw=2)
-            dir_plot = plot!(x_values, max_ess_arr, subplot=2, label=string(dimension, "D", " Multivariate Normal"), lw=2)
-            dir_plot = plot!(x_values, mean_ess_arr, subplot=3, label=string(dimension, "D", " Multivariate Normal"), lw=2)
-
-        end
-        location = "plots/"
-        name = string(dir_algo, "MFPS_plot")
-        full_string = string(location,name)
-        png(full_string)
-    end
-
+function plot_samples(samples)
+    p = plot(
+        samples;
+        vsel=collect(1:3),
+        bins = 200,
+        mean=true,
+        std=false,
+        globalmode=false,
+        marginalmode=false,
+        #diagonal = Dict(),
+        #upper = Dict(),
+        #lower = Dict(),
+        vsel_label = [L"Θ_1", L"Θ_2", L"Θ_3"]
+    )
+    return p
 end
-
-
-
-
-function plot_jbr_tests(state_arr, runs)
-
-    gr(size=(1.3*850, 1.3*800), thickness_scaling = 1.5)
-
-    direction_algos_temp = [string(state_arr[i].direction_change_algorithm) for i=eachindex(state_arr)]
-    direction_algos = unique(direction_algos_temp)
-    
-
-    for dir_algo in direction_algos
-
-        dir_plot = plot(layout=(3,1))
-
-        direction_states = state_arr[findall(x -> string(x.direction_change_algorithm) == dir_algo ? true : false, state_arr)]
-        dimensions = unique([direction_states[i].dimension for i=eachindex(direction_states)])
-
-        
-        dir_plot = plot!(subplot=1, title=dir_algo, xlabel="Jumps before refresh", ylabel="Minimum of ESS")
-        dir_plot = plot!(subplot=2, xlabel="Jumps before refresh", ylabel="Maximum of ESS")
-        dir_plot = plot!(subplot=3, xlabel="Jumps before refresh", ylabel="Mean of ESS")
-
-        for dimension in dimensions
-            states = direction_states[findall(x -> x.dimension == dimension ? true : false, direction_states)]
-            
-            x_values = []
-            min_ess_arr = []
-            max_ess_arr = []
-            mean_ess_arr = []
-            
-            for state in states
-                x = state.jumps_before_refresh
-                state_ess = load_effective_sample_sizes(state, runs)
-                min_ess, max_ess, mean_ess = min_max_mean_ess(state_ess)
-                push!(min_ess_arr, min_ess)
-                push!(max_ess_arr, max_ess)
-                push!(mean_ess_arr, mean_ess)
-                push!(x_values, x)
-            end
-
-            println(string(dir_algo, " ",dimension,"D MvNormal"))
-            println(string("   Maximal ESS value for min(ESS): ", maximum(min_ess_arr)))
-            println(string("   Maximal ESS value for max(ESS): ", maximum(max_ess_arr)))
-            println(string("   Maximal ESS value for mean(ESS): ", maximum(mean_ess_arr)))
-
-
-            min_ess_arr = min_ess_arr ./(maximum(min_ess_arr))
-            max_ess_arr = max_ess_arr ./(maximum(max_ess_arr))
-            mean_ess_arr = mean_ess_arr ./(maximum(mean_ess_arr))
-            
-
-            dir_plot = plot!(x_values, min_ess_arr, subplot=1, label=string(dimension, "D", " Multivariate Normal"), lw=2)
-            dir_plot = plot!(x_values, max_ess_arr, subplot=2, label=string(dimension, "D", " Multivariate Normal"), lw=2)
-            dir_plot = plot!(x_values, mean_ess_arr, subplot=3, label=string(dimension, "D", " Multivariate Normal"), lw=2)
-
-        end
-        dir_plot = plot!(xaxis=:log)
-        location = "plots/"
-        name = string(dir_algo, "jbr_plot")
-        full_string = string(location,name)
-        png(full_string)
-    end
-
-end
-
-
-
-
-
-#----------------------everything that should be looped over--------------
-runs = 1
-#ecmc state stuff:
-nsamples = 2*10^5
-nburnin = 0
-nchains = [4]
-tuning_max_n_steps = 3*10^4
-
-distributions = []
-dimensions = [1, 10, 50, 100]
-adaption_schemes = [GoogleAdaption(automatic_adjusting=true)]
-direction_change_algorithms = [RefreshDirection(), ReverseDirection(), GradientRefreshDirection(), ReflectDirection(), StochasticReflectDirection()]
-direction_change_algorithms = [ReflectDirection()]
-direction_change_algorithms = [StochasticReflectDirection()]
-
-start_deltas = [10^-1]
-step_variances = [0.1]
-variance_algorithms = [NormalVariation()]# evtl checken
-MFPS_values = [1]
-jumps_before_sample = [5] # checken
-jumps_before_refresh = [100]
-
-
-#mcmc state stuff:
-mcmc_distributions = [funnel]
-mcmc_dimensions = [64]
-mcmc_nsamples = 2*10^5
-nburninsteps_per_cycle = 10^5
-nburnin_max_cycles = 60
-mcmc_nchains = 4
-
-
-
-#hmc state stuff:
-
-
-
-#other:
-#kolgorov smirnoff test ks-Test wie ähnlich verteilungen sind
-#anderson darling test
-#salvatore oder lars für cluster fragen
-#sum of weitghts
-
-
-#---------------initializing p_states----------
-ecmc_p_states = [ecmc_performance_state(
-    target_distribution = distributions[dist],
-    dimension = dimensions[dim],
-    nsamples = nsamples,
-    nburnin = nburnin,
-    nchains = nchains[chain],
-    tuning_max_n_steps = tuning_max_n_steps,
-
-    adaption_scheme = adaption_schemes[ad_s],
-    direction_change_algorithm = direction_change_algorithms[dir],
-    start_delta = start_deltas[sdelta],
-    tuned_deltas = [],
-    tuning_steps = [],
-    ntunings_not_converged = 0,
-    step_variance = step_variances[s_var],
-    variance_algorithm = variance_algorithms[v_algo],
-    MFPS_value = MFPS_values[mfp],
-    jumps_before_sample = jumps_before_sample[j_sam], 
-    jumps_before_refresh = jumps_before_refresh[j_ref],
-
-    samples = [],
-    effective_sample_size = [],
-    ) for dist=eachindex(distributions), 
-        dim=eachindex(dimensions), 
-        chain=eachindex(nchains),
-        ad_s=eachindex(adaption_schemes),
-        dir=eachindex(direction_change_algorithms), 
-        sdelta=eachindex(start_deltas), 
-        s_var=eachindex(step_variances), 
-        v_algo=eachindex(variance_algorithms),
-        mfp=eachindex(MFPS_values), 
-        j_sam=eachindex(jumps_before_sample), 
-        j_ref=eachindex(jumps_before_refresh)
-]
-
-
-mcmc_p_states = [mcmc_performance_state(
-    target_distribution = mcmc_distributions[dist],
-    dimension = mcmc_dimensions[dims],
-    nsamples = mcmc_nsamples,
-    nburninsteps_per_cycle = nburninsteps_per_cycle,
-    nburnin_max_cycles = nburnin_max_cycles,
-    nchains = mcmc_nchains,
-
-    samples = [],
-    effective_sample_size = [],
-) for dist=eachindex(mcmc_distributions),
-    dims=eachindex(mcmc_dimensions)
-]
-
-
-
-#hmc_p_states = [hmc_performance_state(
-
-#) for 
-#]
-
-#rastaban
-
-#--------running stuff------------
-
-multiple_states_run(ecmc_p_states, runs)
-
-plot_mfps_tests(ecmc_p_states, runs)
-
-plot_jbr_tests(ecmc_p_states, runs)
-
-
-
-results = [load_state(ecmc_p_states[i]) for i=eachindex(ecmc_p_states)]
-
-for i in eachindex(results)
-    ess_min, ess_max, ess_mean = min_max_mean_ess(results[i].effective_sample_size)
-    println()
-    println(results[i].dimension, "D ", results[i].target_distribution)
-    println("   ESS min = ", ess_min)
-    println("   ESS max = ", ess_max)
-    println("   ESS mean = ", ess_mean)
-    println("   samples mean diff to true mean = ", mean(abs.(mean(results[i].samples).a)))
-    println("   samples mean diff to true std = ", mean(abs.(std(results[i].samples).a - fill(1.,results[i].dimension))))
-    println()
-end
-
-a
-#-----------results--------------
-
-# REFLECT AND STOCHASTICREFLECT PERFOM WAY BETTER AT HIGHER DIMENSIONS
-# SO REFLECT WITH MFPS 1 AND STOCHASTICREFLECT WITH MFPS 3 ARE CHOSEN
-#RefreshDirection() 2D MvNormal
-#   Maximal ESS value for min(ESS): 616144.9651099487
-#   Maximal ESS value for max(ESS): 621101.1974870306
-#   Maximal ESS value for mean(ESS): 618623.0812984895
-#RefreshDirection() 32D MvNormal
-#   Maximal ESS value for min(ESS): 37553.56759328657
-#   Maximal ESS value for max(ESS): 40321.33789954038
-#   Maximal ESS value for mean(ESS): 39084.218706463114
-#ReverseDirection() 2D MvNormal
-#   Maximal ESS value for min(ESS): 49346.51397217456
-#   Maximal ESS value for max(ESS): 50152.39102985521
-#   Maximal ESS value for mean(ESS): 49749.45250101489
-#ReverseDirection() 32D MvNormal
-#   Maximal ESS value for min(ESS): 1111.5841529055256
-#   Maximal ESS value for max(ESS): 1528.8567862263642
-#   Maximal ESS value for mean(ESS): 1304.8157368744608
-#GradientRefreshDirection() 2D MvNormal
-#   Maximal ESS value for min(ESS): 791446.7329209563
-#   Maximal ESS value for max(ESS): 795028.1770723681
-#   Maximal ESS value for mean(ESS): 793237.4549966622
-#GradientRefreshDirection() 32D MvNormal
-#   Maximal ESS value for min(ESS): 91092.13702099383
-#   Maximal ESS value for max(ESS): 95391.91464716366
-#   Maximal ESS value for mean(ESS): 93365.68368066303
-#ReflectDirection() 2D MvNormal
-#   Maximal ESS value for min(ESS): 800000.0
-#   Maximal ESS value for max(ESS): 800000.0
-#   Maximal ESS value for mean(ESS): 800000.0
-#ReflectDirection() 32D MvNormal
-#   Maximal ESS value for min(ESS): 459724.94200107054
-#   Maximal ESS value for max(ESS): 462721.40500328236
-#   Maximal ESS value for mean(ESS): 461357.7276877036
-#StochasticReflectDirection() 2D MvNormal
-#   Maximal ESS value for min(ESS): 800000.0
-#   Maximal ESS value for max(ESS): 800000.0
-#   Maximal ESS value for mean(ESS): 800000.0
-#StochasticReflectDirection() 32D MvNormal
-#   Maximal ESS value for min(ESS): 214384.26684142477
-#   Maximal ESS value for max(ESS): 219267.91798365355
-#   Maximal ESS value for mean(ESS): 217183.60694348012
-
-#USED STUFF FOR MFPS RUNS
-runs = 10
-#ecmc state stuff:
-nsamples = 2*10^5
-nburnin = 0
-nchains = [4]
-tuning_max_n_steps = 3*10^4
-
-distributions = [mvnormal]
-dimensions = [2, 32]
-adaption_schemes = [GoogleAdaption(automatic_adjusting=true)]
-direction_change_algorithms = [RefreshDirection(), ReverseDirection(), GradientRefreshDirection(), ReflectDirection(), StochasticReflectDirection()]
-
-start_deltas = [10^-1]
-step_variances = [0.1]
-variance_algorithms = [NoVariation()]
-MFPS_values = [1,2,3,4,5]
-jumps_before_sample = [10]
-jumps_before_refresh = [100]
-
-
-
-
-
-
-
-# PERFORMANCE TESTS SETTINGS:
-# REFLECT:
-runs = 1
-#ecmc state stuff:
-nsamples = 2*10^5
-nburnin = 0
-nchains = [4]
-tuning_max_n_steps = 3*10^4
-
-distributions = [mvnormal]
-dimensions = [1, 10, 50, 100]
-adaption_schemes = [GoogleAdaption(automatic_adjusting=true)]
-direction_change_algorithms = [ReflectDirection()]
-
-start_deltas = [10^-1]
-step_variances = [0.1]
-variance_algorithms = [NoVariation()]
-MFPS_values = [1]
-jumps_before_sample = [10]
-jumps_before_refresh = [100]
 
 

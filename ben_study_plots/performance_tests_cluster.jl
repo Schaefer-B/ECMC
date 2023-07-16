@@ -7,12 +7,16 @@ using ForwardDiff
 using InverseFunctions
 using DensityInterface
 using StatsBase
+using JLD2
 using FileIO
 using LaTeXStrings
+using TranscodingStreams
+using CodecZlib
+
 #using HypothesisTests
 
 include("/net/e4-nfs-home.e4.physik.tu-dortmund.de/home/bschaefer/performance_tests/ecmc_cluster.jl")
-#include("../ecmc_cluster.jl")
+#include("../ecmc.jl")
 
 #anymeasureordensity => 
 #salvatore lacanina ceph, arbeiten, bachelorarbeiten
@@ -324,7 +328,10 @@ function get_residual_values(samples, iid_samples)
         push!(chisq_values, chisq_value)  
     end
 
-    return chisq_values, normalized_residuals
+    chisq_values_arr = [chisq_values[i] for i=eachindex(chisq_values)]
+    normalized_residuals_arr = [normalized_residuals[i] for i=eachindex(normalized_residuals)]
+
+    return chisq_values_arr, normalized_residuals_arr
 end
 
 
@@ -335,21 +342,26 @@ function calculate_test_measures(samples, effective_sample_size, nsamples, nchai
     iid_sample = bat_sample(dist, IIDSampling(nsamples=nsamples_iid))
     iid_samples = iid_sample.result
 
+    effective_sample_size_arr = [effective_sample_size[i] for i=eachindex(effective_sample_size)]
+
     samples_mode = mode(samples)
+    samples_mode_arr = [samples_mode.a[i] for i = eachindex(samples_mode.a)]
     samples_mean = mean(samples)
+    samples_mean_arr = [samples_mean.a[i] for i = eachindex(samples_mean.a)]
     samples_std = std(samples)
+    samples_std_arr = [samples_std.a[i] for i = eachindex(samples_std.a)]
 
     ks_p_values = get_ks_p_values(samples, iid_samples)
     chisq_values, normalized_residuals = get_residual_values(samples, iid_samples)
 
     t = TestMeasuresStruct(
-        effective_sample_size = effective_sample_size,
+        effective_sample_size = effective_sample_size_arr,
         ks_p_values = ks_p_values,
         chisq_values = chisq_values,
         normalized_residuals = normalized_residuals,
-        samples_mode = samples_mode,
-        samples_mean = samples_mean,
-        samples_std = samples_std,
+        samples_mode = samples_mode_arr,
+        samples_mean = samples_mean_arr,
+        samples_std = samples_std_arr,
         sample_time = sample_time,
     )
 
@@ -499,7 +511,7 @@ function save_state(p_state::ECMCResultState, run_id=1)
     name_add = string("_", run_id)
     extension = ".jld2"
     full_name = string(location,sampler,name,name_add,extension)
-    save(full_name, Dict("state" => p_state), compression = true)
+    save(full_name, Dict("state" => p_state); compress = true)
 end
 
 
@@ -511,7 +523,7 @@ function save_test_measures(p_state::ECMCPerformanceState, testmeasures, run_id=
     name_add = string("_", run_id)
     extension = ".jld2"
     full_name = string(location,sampler,location_add,name,name_add,extension)
-    save(full_name, Dict("testmeasurestruct" => testmeasures), compression = true)
+    save(full_name, Dict("testmeasurestruct" => testmeasures); compress = true)
 end
 
 function save_test_measures(p_state::MCMCPerformanceState, testmeasures, run_id=1) 
@@ -522,7 +534,7 @@ function save_test_measures(p_state::MCMCPerformanceState, testmeasures, run_id=
     name_add = string("_", run_id)
     extension = ".jld2"
     full_name = string(location,sampler,location_add,name,name_add,extension)
-    save(full_name, Dict("testmeasurestruct" => testmeasures), compression = true)
+    save(full_name, Dict("testmeasurestruct" => testmeasures); compress = true)
 end
 
 

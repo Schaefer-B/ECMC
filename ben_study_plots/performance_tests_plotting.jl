@@ -1,7 +1,7 @@
 
-include("performance_tests_cluster.jl")
+include("performance_tests.jl")
 
-
+include("performance_tests_all_runs_listed.jl")
 
 
 
@@ -249,119 +249,46 @@ end
 
 
 
-#----------------------everything that should be looped over--------------
-runs = 1
-#ecmc state stuff:
-nsamples = 1*10^4
-nburnin = 0
-nchains = [4]
-tuning_max_n_steps = 3*10^4
-
-distributions = [MvNormal]
-dimensions = [10]
-adaption_schemes = [GoogleAdaption(automatic_adjusting=true)]
-#direction_change_algorithms = [RefreshDirection(), ReverseDirection(), GradientRefreshDirection(), ReflectDirection(), StochasticReflectDirection()]
-direction_change_algorithms = [RefreshDirection()]
-
-start_deltas = [10^-1]
-step_variances = [0.1]
-variance_algorithms = [NormalVariation()]# evtl checken
-target_acc_values = [0.23, 0.75]
-jumps_before_sample = [5] # checken
-jumps_before_refresh = [100]
-
-
-#mcmc state stuff:
-mcmc_distributions = [mvnormal]
-mcmc_dimensions = [2]
-mcmc_nsamples = 1*10^6
-nburninsteps_per_cycle = 10^5
-nburnin_max_cycles = 60
-mcmc_nchains = 4
-
-
-
-#hmc state stuff:
 
 
 
 
 
+#--------loading stuff-----------
 
-#---------------initializing p_states----------
-ecmc_p_states = [ECMCPerformanceState(
-    target_distribution = distributions[dist],
-    dimension = dimensions[dim],
-    nsamples = nsamples,
-    nburnin = nburnin,
-    nchains = nchains[chain],
-    tuning_max_n_steps = tuning_max_n_steps,
+ecmc_p_states_run_001, runs_001 = run_001()
+testmeasures_001 = [load_test_measures(ecmc_p_states_run_001[i], 1:runs_001) for i=eachindex(ecmc_p_states_run_001)]
 
-    adaption_scheme = adaption_schemes[ad_s],
-    direction_change_algorithm = direction_change_algorithms[dir],
-    start_delta = start_deltas[sdelta],
-    tuned_deltas = [],
-    tuning_steps = [],
-    ntunings_not_converged = 0,
-    step_variance = step_variances[s_var],
-    variance_algorithm = variance_algorithms[v_algo],
-    target_acc_value = target_acc_values[tacc],
-    jumps_before_sample = jumps_before_sample[j_sam], 
-    jumps_before_refresh = jumps_before_refresh[j_ref],
-
-    samples = [],
-    effective_sample_size = [],
-    ) for dist=eachindex(distributions), 
-        dim=eachindex(dimensions), 
-        chain=eachindex(nchains),
-        ad_s=eachindex(adaption_schemes),
-        dir=eachindex(direction_change_algorithms), 
-        sdelta=eachindex(start_deltas), 
-        s_var=eachindex(step_variances), 
-        v_algo=eachindex(variance_algorithms),
-        tacc=eachindex(target_acc_values), 
-        j_sam=eachindex(jumps_before_sample), 
-        j_ref=eachindex(jumps_before_refresh)
-]
-
-
-mcmc_p_states = [MCMCPerformanceState(
-    target_distribution = mcmc_distributions[dist],
-    dimension = mcmc_dimensions[dims],
-    nsamples = mcmc_nsamples,
-    nburninsteps_per_cycle = nburninsteps_per_cycle,
-    nburnin_max_cycles = nburnin_max_cycles,
-    nchains = mcmc_nchains,
-
-    samples = [],
-    effective_sample_size = [],
-) for dist=eachindex(mcmc_distributions),
-    dims=eachindex(mcmc_dimensions)
-]
-
-
-
-#hmc_p_states = [HMCPerformanceState(
-
-#) for 
-#]
-
-#rastaban
-
+eps = ecmc_p_states_run_001[14]
+t_m = load_test_measures(eps, 1:runs_001);
 #--------running stuff------------
 
 
-t_measures = load_test_measures(ecmc_p_states[1], 1:runs)
+
+
+
+
+t_m[1].ks_p_values
+
 
 plot_mfps_tests(ecmc_p_states, runs)
 
 plot_jbr_tests(ecmc_p_states, runs)
 
 
-plot(t_measures[1].ks_p_values, st=:histogram, bins=10)
-plot(t_measures[1].chisq_values, st=:histogram, bins=10)
-plot(t_measures[1].normalized_residuals, st=:histogram, bins=50)
-t_measures[1].sample_time
-t_measures[1].samples_mean
-t_measures[1].samples_std
-t_measures[1].effective_sample_size
+std(t_m[1].normalized_residuals)
+plot(t_m[1].ks_p_values, st=:histogram, bins=10)
+plot(t_m[1].chisq_values, st=:histogram, bins=10)
+plot(t_m[1].normalized_residuals, st=:histogram, bins=60, normalized=:pdf)
+plot!(rand(Normal(0.,1.), 10000), st=:histogram, normalized=:pdf)
+
+
+
+for i in eachindex(t_m)
+    println("$i diff to mean = ", mean(abs.(t_m[i].samples_mean)), " +/- ", std(abs.(t_m[i].samples_mean)))
+end
+t_m[1].samples_std
+
+for i in eachindex(t_m)
+    println("ess/second($i) = ", mean(t_m[i].effective_sample_size)/t_m[i].sample_time)
+end

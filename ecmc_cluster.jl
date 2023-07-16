@@ -15,4 +15,4 @@ include("/net/e4-nfs-home.e4.physik.tu-dortmund.de/home/bschaefer/performance_te
 include("/net/e4-nfs-home.e4.physik.tu-dortmund.de/home/bschaefer/performance_tests/ecmc_refresh_delta.jl")
 include("/net/e4-nfs-home.e4.physik.tu-dortmund.de/home/bschaefer/performance_tests/ecmc_ECMCstate.jl")
 
-include("/net/e4-nfs-home.e4.physik.tu-dortmund.de/home/bschaefer/performance_tests/ecmc_sampler.jl")
+include("/net/e4-nfs-home.e4.physik.tu-dortmund.de/home/bschaefer/performance_tests/ecmc_sampler_cluster.jl")
