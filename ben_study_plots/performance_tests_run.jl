@@ -17,25 +17,24 @@ distributions = [MvNormal]
 dimensions = [32]
 adaption_schemes = [GoogleAdaption(automatic_adjusting=true)]
 #direction_change_algorithms = [RefreshDirection(), ReverseDirection(), GradientRefreshDirection(), ReflectDirection(), StochasticReflectDirection()]
-direction_change_algorithms = [ReverseDirection(), GradientRefreshDirection(), ReflectDirection(), StochasticReflectDirection()]
+direction_change_algorithms = [ReflectDirection()]
 #direction_change_algorithms = [RefreshDirection()]
 
 start_deltas = [10^-1]
 step_variances = [0.05]
 variance_algorithms = [NormalVariation()]# evtl checken
-target_acc_values = [0.8]
-#target_acc_values = [0.5]
-jumps_before_sample = [5] # checken
-jumps_before_refresh = [100]
+target_acc_values = [0.6]
+jumps_before_sample = [5] # checken?
+jumps_before_refresh = [50, 100, 150, 200, 250, 300]
 
 
 #mcmc state stuff:
-mcmc_distributions = [MvNormal]
-mcmc_dimensions = [2]
-mcmc_nsamples = 1*10^6
-nburninsteps_per_cycle = 10^5
-nburnin_max_cycles = 60
-mcmc_nchains = 4
+#mcmc_distributions = [MvNormal]
+#mcmc_dimensions = [2]
+#mcmc_nsamples = 1*10^6
+#nburninsteps_per_cycle = 10^5
+#nburnin_max_cycles = 60
+#mcmc_nchains = 4
 
 
 
@@ -85,19 +84,19 @@ ecmc_p_states = [ECMCPerformanceState(
 #---------------------------------------------------------
 
 
-mcmc_p_states = [MCMCPerformanceState(
-    target_distribution = mcmc_distributions[dist],
-    dimension = mcmc_dimensions[dims],
-    nsamples = mcmc_nsamples,
-    nburninsteps_per_cycle = nburninsteps_per_cycle,
-    nburnin_max_cycles = nburnin_max_cycles,
-    nchains = mcmc_nchains,
+#mcmc_p_states = [MCMCPerformanceState(
+#    target_distribution = mcmc_distributions[dist],
+#    dimension = mcmc_dimensions[dims],
+#    nsamples = mcmc_nsamples,
+#    nburninsteps_per_cycle = nburninsteps_per_cycle,
+#    nburnin_max_cycles = nburnin_max_cycles,
+#    nchains = mcmc_nchains,
 
-    samples = [],
-    effective_sample_size = [],
-) for dist=eachindex(mcmc_distributions),
-    dims=eachindex(mcmc_dimensions)
-]
+#    samples = [],
+#    effective_sample_size = [],
+#) for dist=eachindex(mcmc_distributions),
+#    dims=eachindex(mcmc_dimensions)
+#]
 
 
 

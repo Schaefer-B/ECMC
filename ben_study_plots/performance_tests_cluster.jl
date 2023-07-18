@@ -43,6 +43,15 @@ include("/net/e4-nfs-home.e4.physik.tu-dortmund.de/home/bschaefer/performance_te
 end
 
 
+@with_kw mutable struct DebuggingInfo
+    one_d_marginal_samples
+    one_d_marginal_samples_iid
+    
+    one_d_marginal_residuals
+
+end
+
+
 @with_kw mutable struct ECMCPerformanceState
     target_distribution
     dimension::Int64
@@ -293,6 +302,9 @@ function get_residual_values(samples, iid_samples)
 
     chisq_values = []
     normalized_residuals = []
+    one_d_marginal_samples = []
+    one_d_marginal_samples_iid = []
+    one_d_marginal_residuals = []
 
     for d in 1:dimensions
         marginal_samples = [samples[i][d] for i=eachindex(samples)]
@@ -310,6 +322,7 @@ function get_residual_values(samples, iid_samples)
         samples_binned = samples_hist.weights
         iid_samples_binned = iid_samples_hist.weights
         
+        residuals = []
         chisq_value = 0
         for bin in eachindex(iid_samples_binned)
             observed = samples_binned[bin]
@@ -317,21 +330,29 @@ function get_residual_values(samples, iid_samples)
 
             if expected > 10
                 residual = (observed - expected)
-                standard_deviation = sqrt(expected)
+                standard_deviation = sqrt(expected + observed)
 
                 chisq_value += (residual)^2 /expected
 
                 normalized_residual = residual/standard_deviation
                 push!(normalized_residuals, normalized_residual)
+                push!(residuals, residual)
             end
         end
-        push!(chisq_values, chisq_value)  
+        push!(chisq_values, chisq_value)
+
+        if d == 1
+            one_d_marginal_samples = marginal_samples
+            one_d_marginal_samples_iid = iid_marginal_samples
+            one_d_marginal_residuals = [residuals[i] for i=eachindex(residuals)]
+        end
+
     end
 
     chisq_values_arr = [chisq_values[i] for i=eachindex(chisq_values)]
     normalized_residuals_arr = [normalized_residuals[i] for i=eachindex(normalized_residuals)]
 
-    return chisq_values_arr, normalized_residuals_arr
+    return chisq_values_arr, normalized_residuals_arr, one_d_marginal_samples, one_d_marginal_samples_iid, one_d_marginal_residuals
 end
 
 
@@ -352,7 +373,7 @@ function calculate_test_measures(samples, effective_sample_size, nsamples, nchai
     samples_std_arr = [samples_std.a[i] for i = eachindex(samples_std.a)]
 
     ks_p_values = get_ks_p_values(samples, iid_samples)
-    chisq_values, normalized_residuals = get_residual_values(samples, iid_samples)
+    chisq_values, normalized_residuals,  one_d_marginal_samples, one_d_marginal_samples_iid, one_d_marginal_residuals = get_residual_values(samples, iid_samples)
 
     t = TestMeasuresStruct(
         effective_sample_size = effective_sample_size_arr,
@@ -365,7 +386,7 @@ function calculate_test_measures(samples, effective_sample_size, nsamples, nchai
         sample_time = sample_time,
     )
 
-    return t
+    return t, one_d_marginal_samples, one_d_marginal_samples_iid, one_d_marginal_residuals
 end
 
 #---------------------------------
@@ -450,13 +471,25 @@ function one_state_run(p_state, runs=1, start_id=1, save_all_samples=false)
             result_state.effective_sample_size = []
         end
 
-        testmeasures = calculate_test_measures(p_state.samples, p_state.effective_sample_size ,p_state.nsamples, p_state.nchains, sample_time, dist)
+        testmeasures, one_d_marginal_samples, one_d_marginal_samples_iid, one_d_marginal_residuals = calculate_test_measures(p_state.samples, p_state.effective_sample_size ,p_state.nsamples, p_state.nchains, sample_time, dist)
+        
+        first_run_marginal_samples = []
+        first_run_marginal_samples_iid = []
         if run_id == start_id
             sample_plot = plot_samples(p_state.samples)
             save_sample_plot(p_state, sample_plot, run_id)
+            first_run_marginal_samples = one_d_marginal_samples
+            first_run_marginal_samples_iid = one_d_marginal_samples_iid
         end
         p_state.samples = []
         p_state.effective_sample_size = []
+
+        debug_i = DebuggingInfo(
+            one_d_marginal_samples = first_run_marginal_samples,
+            one_d_marginal_samples_iid = first_run_marginal_samples_iid,
+            one_d_marginal_residuals = one_d_marginal_residuals
+        )
+        save_debug_info(p_state, debug_i, run_id)
 
         save_test_measures(p_state, testmeasures, run_id)
         
@@ -535,6 +568,30 @@ function save_test_measures(p_state::MCMCPerformanceState, testmeasures, run_id=
     extension = ".jld2"
     full_name = string(location,sampler,location_add,name,name_add,extension)
     save(full_name, Dict("testmeasurestruct" => testmeasures); compress = true)
+end
+
+
+function save_debug_info(p_state::ECMCPerformanceState, debug_i, run_id=1) 
+    location = "/net/e4-nfs-home.e4.physik.tu-dortmund.de/home/bschaefer/performance_tests/"
+    sampler = "ecmc/"
+    location_add = "debug_info/"
+    name = string(p_state.direction_change_algorithm, p_state.target_distribution, p_state.dimension,"D_", p_state.target_acc_value, "target_acc_", p_state.jumps_before_refresh, "jbr_", p_state.nsamples, "samples_", p_state.nchains, "nchains")
+    name_add = string("_", run_id)
+    extension = ".jld2"
+    full_name = string(location,sampler,location_add,name,name_add,extension)
+    save(full_name, Dict("debug_info" => debug_i); compress = true)
+end
+
+
+function save_debug_info(p_state::MCMCPerformanceState, debug_i, run_id=1) 
+    location = "/net/e4-nfs-home.e4.physik.tu-dortmund.de/home/bschaefer/performance_tests/"
+    sampler = "mcmc/"
+    location_add = "debug_info/"
+    name = string(p_state.direction_change_algorithm, p_state.target_distribution, p_state.dimension,"D_", p_state.target_acc_value, "target_acc_", p_state.jumps_before_refresh, "jbr_", p_state.nsamples, "samples_", p_state.nchains, "nchains")
+    name_add = string("_", run_id)
+    extension = ".jld2"
+    full_name = string(location,sampler,location_add,name,name_add,extension)
+    save(full_name, Dict("debug_info" => debug_i); compress = true)
 end
 
 
