@@ -180,117 +180,450 @@ function plot_best_target_acc(p_states, test_measures_states, runs)
     direction_algos = unique(direction_algos_temp)
     #println("unique direction algos = ", direction_algos)
 
+    final_plots = []
 
     for dir_algo in direction_algos
         
         one_dir_indices = findall(x -> string(x.direction_change_algorithm) == dir_algo ? true : false, p_states)
         
-
+        ess_time_mean_arr = []
+        ess_time_std_arr = []
+        
         for t_acc_index in one_dir_indices # for loop over target acceptance rates
             
 
             test_measures = test_measures_states[t_acc_index]
             
-            ess_time_arr = [mean(test_measures[i].effective_sample_size)/test_measures[i].sample_time for i=eachindex(test_measures)]
-            ess_time_mean = mean(ess_time_arr)
-            ess_time_std = std(ess_time_arr)
+            ess_time_runs = [mean(test_measures[i].effective_sample_size)/test_measures[i].sample_time for i=eachindex(test_measures)]
+            ess_time_mean = mean(ess_time_runs)
+            ess_time_std = std(ess_time_runs)
 
-            
+            push!(ess_time_mean_arr, ess_time_mean)
+            push!(ess_time_std_arr, ess_time_std)
 
         end
+        x_values = [p_states[i].target_acc_value for i=one_dir_indices]
+        final_plot = plot(x_values, ess_time_mean_arr, ribbon=(ess_time_std_arr,ess_time_std_arr))
+        plot!(xlabel="Target acceptance rate", ylabel="Mean of ESS per sample time", legend=false)
         
+        max_ess_time = maximum(ess_time_mean_arr)
+        max_ess_time_std = ess_time_std_arr[findfirst(x -> x == max_ess_time, ess_time_mean_arr)]
+        target_acc_rate = x_values[findfirst(x -> x == max_ess_time, ess_time_mean_arr)]
 
+        location = "plots/"
+        name = string("finding_best_target_acc_", dir_algo)
+        full = string(location, name)
+        png(full)
+        println(dir_algo)
+        println("    best target acceptance rate = ", target_acc_rate)
+        println("    best ESS/second = ", max_ess_time, " +/- ", max_ess_time_std)
+        println()
+
+        push!(final_plots, final_plot)
     end
 
-    dir_index = eachindex(direction_algos)
-    x_values = direction_algos
-
-    #final_plot = scatter(dir_index .-0.5, best_ess_time_mean_arr, xdiscrete_values=x_values, yerr=best_ess_time_std_arr)
-    final_plot = plot(dir_index .-0.5, best_ess_time_mean_arr, xdiscrete_values=x_values, yerr=best_ess_time_std_arr)
-    plot!(xlabel="Direction change algorithms", ylabel="Mean of ESS per sample time", legend=false)
-
-    return final_plot
+    
+    return final_plots
 end
 
 
 
-function plot_jbr_tests(state_arr, runs)
+function plot_best_jbr(p_states, test_measures_states, runs)
 
     gr(size=(1.3*850, 1.3*800), thickness_scaling = 1.5)
 
-    direction_algos_temp = [string(state_arr[i].direction_change_algorithm) for i=eachindex(state_arr)]
-    direction_algos = unique(direction_algos_temp)
     
+    p_states = [p_states[i] for i=eachindex(p_states)]
+    direction_algos_temp = [string(p_states[i].direction_change_algorithm) for i=eachindex(p_states)]
+    direction_algos = unique(direction_algos_temp)
+    #println("unique direction algos = ", direction_algos)
+
+    final_plots = []
 
     for dir_algo in direction_algos
-
-        dir_plot = plot(layout=(3,1))
-
-        direction_states = state_arr[findall(x -> string(x.direction_change_algorithm) == dir_algo ? true : false, state_arr)]
-        dimensions = unique([direction_states[i].dimension for i=eachindex(direction_states)])
-
         
-        dir_plot = plot!(subplot=1, title=dir_algo, xlabel="Jumps before refresh", ylabel="Minimum of ESS")
-        dir_plot = plot!(subplot=2, xlabel="Jumps before refresh", ylabel="Maximum of ESS")
-        dir_plot = plot!(subplot=3, xlabel="Jumps before refresh", ylabel="Mean of ESS")
-
-        for dimension in dimensions
-            states = direction_states[findall(x -> x.dimension == dimension ? true : false, direction_states)]
-            
-            x_values = []
-            min_ess_arr = []
-            max_ess_arr = []
-            mean_ess_arr = []
-            
-            for state in states
-                x = state.jumps_before_refresh
-                state_ess = load_effective_sample_sizes(state, runs)
-                min_ess, max_ess, mean_ess = min_max_mean_ess(state_ess)
-                push!(min_ess_arr, min_ess)
-                push!(max_ess_arr, max_ess)
-                push!(mean_ess_arr, mean_ess)
-                push!(x_values, x)
-            end
-
-            println(string(dir_algo, " ",dimension,"D MvNormal"))
-            println(string("   Maximal ESS value for min(ESS): ", maximum(min_ess_arr)))
-            println(string("   Maximal ESS value for max(ESS): ", maximum(max_ess_arr)))
-            println(string("   Maximal ESS value for mean(ESS): ", maximum(mean_ess_arr)))
-
-
-            min_ess_arr = min_ess_arr ./(maximum(min_ess_arr))
-            max_ess_arr = max_ess_arr ./(maximum(max_ess_arr))
-            mean_ess_arr = mean_ess_arr ./(maximum(mean_ess_arr))
+        one_dir_indices = findall(x -> string(x.direction_change_algorithm) == dir_algo ? true : false, p_states)
+        
+        ess_time_mean_arr = []
+        ess_time_std_arr = []
+        
+        for jbr_index in one_dir_indices # for loop over jbr
             
 
-            dir_plot = plot!(x_values, min_ess_arr, subplot=1, label=string(dimension, "D", " Multivariate Normal"), lw=2)
-            dir_plot = plot!(x_values, max_ess_arr, subplot=2, label=string(dimension, "D", " Multivariate Normal"), lw=2)
-            dir_plot = plot!(x_values, mean_ess_arr, subplot=3, label=string(dimension, "D", " Multivariate Normal"), lw=2)
+            test_measures = test_measures_states[jbr_index]
+            
+            ess_time_runs = [mean(test_measures[i].effective_sample_size)/test_measures[i].sample_time for i=eachindex(test_measures)]
+            ess_time_mean = mean(ess_time_runs)
+            ess_time_std = std(ess_time_runs)
+
+            push!(ess_time_mean_arr, ess_time_mean)
+            push!(ess_time_std_arr, ess_time_std)
 
         end
-        dir_plot = plot!(xaxis=:log)
+        x_values = [p_states[i].jumps_before_refresh for i=one_dir_indices]
+        final_plot = plot(x_values, ess_time_mean_arr, ribbon=(ess_time_std_arr,ess_time_std_arr))
+        plot!(xlabel="Jumps before refresh", ylabel="Mean of ESS per sample time", legend=false)
+        
+        max_ess_time = maximum(ess_time_mean_arr)
+        max_ess_time_std = ess_time_std_arr[findfirst(x -> x == max_ess_time, ess_time_mean_arr)]
+        jbr = x_values[findfirst(x -> x == max_ess_time, ess_time_mean_arr)]
+
         location = "plots/"
-        name = string(dir_algo, "jbr_plot")
-        full_string = string(location,name)
-        png(full_string)
+        name = string("finding_best_jbr_", dir_algo)
+        full = string(location, name)
+        png(full)
+        println(dir_algo)
+        println("    best jumps before refresh = ", jbr)
+        println("    best ESS/second = ", max_ess_time, " +/- ", max_ess_time_std)
+        println()
+
+        push!(final_plots, final_plot)
     end
 
+    
+    return final_plots
 end
 
 
 
 
+function plot_ess_time(p_states, test_measures_states, runs)
+
+    gr(size=(1.3*850, 1.3*800), thickness_scaling = 1.5)
+    location = "plots/"
+    
+    p_states = [p_states[i] for i=eachindex(p_states)]
+    direction_algos_temp = [string(p_states[i].direction_change_algorithm) for i=eachindex(p_states)]
+    direction_algos = unique(direction_algos_temp)
+    #println("unique direction algos = ", direction_algos)
+
+    ess_time_plots = []
+
+    for dir_algo in direction_algos
+        
+        one_dir_indices = findall(x -> string(x.direction_change_algorithm) == dir_algo ? true : false, p_states)
+        #p_algo_states = p_states(one_dir_indices)
+
+
+        ess_time_mean_arr = []
+        ess_time_std_arr = []
+        
+        for dim_index in one_dir_indices # for loop over dimensions
+            
+
+            test_measures = test_measures_states[dim_index]
+            
+            ess_time_runs = [mean(test_measures[i].effective_sample_size)/test_measures[i].sample_time for i=eachindex(test_measures)]
+            ess_time_mean = mean(ess_time_runs)
+            ess_time_std = std(ess_time_runs)
+            push!(ess_time_mean_arr, ess_time_mean)
+            push!(ess_time_std_arr, ess_time_std)
+
+
+
+        end
+
+        x_values = [p_states[i].dimension for i=one_dir_indices]
+
+        ess_time_plot = plot(x_values, ess_time_mean_arr, ribbon=(ess_time_std_arr,ess_time_std_arr))
+        plot!(xlabel="Dimension", ylabel="Mean of ESS per sample time", legend=false)
+        name = string("ess_time_", dir_algo)
+        full = string(location, name)
+        png(full)
+        
+        
+        
+
+        
+
+
+
+        push!(ess_time_plots, ess_time_plot)
+    end
+
+    
+    return ess_time_plots
+end
+
+
+function plot_ks_p(p_states, test_measures_states, runs)
+
+    gr(size=(1.3*850, 1.3*800), thickness_scaling = 1.5)
+    location = "plots/"
+    
+    p_states = [p_states[i] for i=eachindex(p_states)]
+    direction_algos_temp = [string(p_states[i].direction_change_algorithm) for i=eachindex(p_states)]
+    direction_algos = unique(direction_algos_temp)
+    #println("unique direction algos = ", direction_algos)
+
+    ksp_plots = []
+
+    for dir_algo in direction_algos
+        
+        one_dir_indices = findall(x -> string(x.direction_change_algorithm) == dir_algo ? true : false, p_states)
+        #p_algo_states = p_states(one_dir_indices)
+
+
+        ksp_arr = []
+        
+        for dim_index in one_dir_indices # for loop over dimensions
+            
+
+            test_measures = test_measures_states[dim_index]
+            
+            ksp_values = []
+            for i in eachindex(test_measures)
+                ksp_values = vcat(ksp_values, test_measures[i].ks_p_values)
+            end
+            push!(ksp_arr, ksp_values)
+
+
+
+        end
+
+        x_values = [p_states[i].dimension for i=one_dir_indices]
+
+        
+        ksp_plot = plot(xlabel="Dimension", ylabel="Kolmogorov-Smirnov test p-value", legend=false)
+        for i in eachindex(ksp_arr[1])
+            y_values = [ksp_arr[dim][i] for dim=eachindex(ksp_arr)]
+            ksp_plot = scatter!(x_values, y_values, color=:blue)
+        end
+        
+        name = string("ksp_", dir_algo)
+        full = string(location, name)
+        png(full)
+        
+        
+        push!(ksp_plots, ksp_plot)
+    end
+
+    
+    return ksp_plots
+end
+
+
+
+function plot_chisq(p_states, test_measures_states, runs)
+
+    gr(size=(1.3*850, 1.3*800), thickness_scaling = 1.5)
+    location = "plots/"
+    
+    p_states = [p_states[i] for i=eachindex(p_states)]
+    direction_algos_temp = [string(p_states[i].direction_change_algorithm) for i=eachindex(p_states)]
+    direction_algos = unique(direction_algos_temp)
+    #println("unique direction algos = ", direction_algos)
+
+    chisq_plots = []
+
+    for dir_algo in direction_algos
+        
+        one_dir_indices = findall(x -> string(x.direction_change_algorithm) == dir_algo ? true : false, p_states)
+        #p_algo_states = p_states(one_dir_indices)
+
+    
+        chisq_mean_arr = []
+        chisq_std_arr = []
+        for dim_index in one_dir_indices # for loop over dimensions
+            
+
+            test_measures = test_measures_states[dim_index]
+            
+            chisq_values = []
+            for i in eachindex(test_measures)
+                chisq_values = vcat(chisq_values, test_measures[i].chisq_values)
+            end
+            chisq_mean = mean(chisq_values)
+            chisq_std = std(chisq_values)
+            push!(chisq_mean_arr, chisq_mean)
+            push!(chisq_std_arr, chisq_std)
+
+        end
+
+        x_values = [p_states[i].dimension for i=one_dir_indices]
+
+        chisq_plot = plot(x_values, chisq_mean_arr, ribbon=(chisq_std_arr, chisq_std_arr))
+        plot!(xlabel="Dimension", ylabel="Mean of squared Distances", legend=false) # CHANGE NAME OF YLABEL
+        name = string("chisq_", dir_algo)
+        full = string(location, name)
+        png(full)
+    
+
+
+        push!(chisq_plots, chisq_plot)
+    end
+
+    
+    return chisq_plots
+end
 
 
 
 
+function plot_pulls(p_states, test_measures_states, runs)
+
+    gr(size=(1.3*850, 1.3*800), thickness_scaling = 1.5)
+    location = "plots/"
+    
+    p_states = [p_states[i] for i=eachindex(p_states)]
+    direction_algos_temp = [string(p_states[i].direction_change_algorithm) for i=eachindex(p_states)]
+    direction_algos = unique(direction_algos_temp)
+    #println("unique direction algos = ", direction_algos)
+
+    pull_plots = []
+
+    for dir_algo in direction_algos
+        
+        one_dir_indices = findall(x -> string(x.direction_change_algorithm) == dir_algo ? true : false, p_states)
+        #p_algo_states = p_states(one_dir_indices)
+
+
+        pulls_mean_arr = []
+        pulls_std_arr = []
+        
+        for dim_index in one_dir_indices # for loop over dimensions
+            
+
+            test_measures = test_measures_states[dim_index]
+            
+            ess_time_runs = [mean(test_measures[i].effective_sample_size)/test_measures[i].sample_time for i=eachindex(test_measures)]
+            ess_time_mean = mean(ess_time_runs)
+            ess_time_std = std(ess_time_runs)
+            push!(ess_time_mean_arr, ess_time_mean)
+            push!(ess_time_std_arr, ess_time_std)
+
+            pulls = []
+            for i in eachindex(test_measures)
+                pulls = vcat(pulls, test_measures[i].normalized_residuals)
+            end
+            pulls_mean = mean(pulls)
+            pulls_std = std(pulls)
+            push!(pulls_mean_arr, pulls_mean)
+            push!(pulls_std_arr, pulls_std)
+
+
+
+        end
+
+        x_values = [p_states[i].dimension for i=one_dir_indices]
+
+        pull_plot = plot(x_values, pulls_mean_arr, ribbon=(pulls_std_arr,pulls_std_arr))
+        #pull_plot = plot(x_values, pulls_mean_arr, ribbon=(pulls_std_arr,pulls_std_arr))
+        plot!(xlabel="Dimension", ylabel="Mean of pulls", legend=false)
+        name = string("pulls_", dir_algo)
+        full = string(location, name)
+        png(full)
+        
+        
+        
+
+
+        push!(pull_plots, pull_plot)
+    end
+
+    
+    return pull_plots
+end
+
+
+
+function plot_diffs(p_states, test_measures_states, runs)
+
+    gr(size=(1.3*850, 1.3*800), thickness_scaling = 1.5)
+    location = "plots/"
+    
+    p_states = [p_states[i] for i=eachindex(p_states)]
+    direction_algos_temp = [string(p_states[i].direction_change_algorithm) for i=eachindex(p_states)]
+    direction_algos = unique(direction_algos_temp)
+    #println("unique direction algos = ", direction_algos)
+
+    mean_diff_plots = []
+    std_diff_plots = []
+
+    for dir_algo in direction_algos
+        
+        one_dir_indices = findall(x -> string(x.direction_change_algorithm) == dir_algo ? true : false, p_states)
+        #p_algo_states = p_states(one_dir_indices)
+
+
+        mean_diff_arr = []
+        std_diff_arr = []
+        
+        for dim_index in one_dir_indices # for loop over dimensions
+            
+
+            test_measures = test_measures_states[dim_index]
+            
+            ess_time_runs = [mean(test_measures[i].effective_sample_size)/test_measures[i].sample_time for i=eachindex(test_measures)]
+            ess_time_mean = mean(ess_time_runs)
+            ess_time_std = std(ess_time_runs)
+            push!(ess_time_mean_arr, ess_time_mean)
+            push!(ess_time_std_arr, ess_time_std)
+
+            ksp_values = []
+            for i in eachindex(test_measures)
+                ksp_values = vcat(ksp_values, test_measures[i].ks_p_values)
+            end
+            push!(ksp_arr, ksp_values)
+
+
+
+        end
+
+        x_values = [p_states[i].dimension for i=one_dir_indices]
+
+        ess_time_plot = plot(x_values, ess_time_mean_arr, ribbon=(ess_time_std_arr,ess_time_std_arr))
+        plot!(xlabel="Dimension", ylabel="Mean of ESS per sample time", legend=false)
+        name = string("ess_time_", dir_algo)
+        full = string(location, name)
+        png(full)
+        
+        ksp_plot = plot(xlabel="Dimension", ylabel="Kolmogorov-Smirnov test p-value", legend=false)
+        for i in eachindex(ksp_arr[1])
+            y_values = [ksp_arr[dim][i] for dim=eachindex(ksp_arr)]
+            ksp_plot = scatter!(x_values, y_values, color=:blue)
+        end
+        
+        name = string("ksp_", dir_algo)
+        full = string(location, name)
+        png(full)
+        
+        
+
+        
+
+
+
+        push!(mean_diff_plots, mean_diff_plot)
+        push!(std_diff_plots, std_diff_plot)
+    end
+
+    
+    return mean_diff_plots, std_diff_plots
+end
 
 
 #--------loading stuff-----------
 
 ecmc_p_states_run_001, runs_001 = run_001()
 testmeasures_001 = [load_test_measures(ecmc_p_states_run_001[i], 1:runs_001) for i=eachindex(ecmc_p_states_run_001)]
+best_dir_algo_plots = plot_best_ess_dir_algo(ecmc_p_states_run_001, testmeasures_001, runs_001)
 
+ecmc_p_states_run_002, runs_002 = run_002()
+testmeasures_002 = [load_test_measures(ecmc_p_states_run_002[i], 1:runs_002) for i=eachindex(ecmc_p_states_run_002)]
+t_acc_plots = plot_best_target_acc(ecmc_p_states_run_002, testmeasures_002, runs_002)
+
+ecmc_p_states_run_003, runs_003 = run_003()
+testmeasures_003 = [load_test_measures(ecmc_p_states_run_003[i], 1:runs_003) for i=eachindex(ecmc_p_states_run_003)]
+best_jbr_for_reflect_plot = plot_best_jbr(ecmc_p_states_run_003, testmeasures_003, runs_003)
+best_jbr_for_reflect_plot[1]
+for jbr in 1:8
+    println("ess mean = ", mean([mean(testmeasures_003[jbr][i].effective_sample_size) for i=1:10]))
+    println("ess std = ", std([mean(testmeasures_003[jbr][i].effective_sample_size) for i=1:10]))
+    println("time mean = ", mean([testmeasures_003[jbr][i].sample_time for i=1:10]))
+    println("time std = ", std([testmeasures_003[jbr][i].sample_time for i=1:10]))
+    println()
+end # Die mean ESS sind fast immer gleich und die schwankungen auch nicht so groß, aber die sample time ist erheblich unterschiedlich und schwankt zwischen den runs (für das selbe jbr) sehr. und da die sample time im nenner steht macht das einen erheblichen unterschied aus
 
 
 eps = ecmc_p_states_run_001[14]
@@ -301,19 +634,27 @@ p = plot_best_ess_dir_algo(ecmc_p_states_run_001, testmeasures_001, runs_001)
 
 png("Finding_best_dir_algo_2")
 
+t_acc_plots = plot_best_target_acc(ecmc_p_states_run_002, testmeasures_002, runs_002)
+
+t_acc_plots[4]
 
 
 
 
 
 
+
+
+#---------------------------------------------
 #----------testing stuff--------------
 
 t_m[1]
 
-
-
-
+ks = []
+for i in eachindex(t_m)
+    ks = vcat(ks, t_m[i].ks_p_values)
+end
+ks
 t_m[1].ks_p_values
 
 
@@ -333,7 +674,7 @@ png("p+norm")
 for i in eachindex(t_m)
     println("$i diff to mean = ", mean(abs.(t_m[i].samples_mean)), " +/- ", std(abs.(t_m[i].samples_mean)))
 end
-t_m[1].samples_std
+t_m[1]
 
 t_m = testmeasures_001[20];
 for i in eachindex(t_m)

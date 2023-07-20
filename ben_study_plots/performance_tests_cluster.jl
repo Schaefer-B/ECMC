@@ -342,8 +342,8 @@ function get_residual_values(samples, iid_samples)
         push!(chisq_values, chisq_value)
 
         if d == 1
-            one_d_marginal_samples = marginal_samples
-            one_d_marginal_samples_iid = iid_marginal_samples
+            #one_d_marginal_samples = marginal_samples
+            #one_d_marginal_samples_iid = iid_marginal_samples
             one_d_marginal_residuals = [residuals[i] for i=eachindex(residuals)]
         end
 

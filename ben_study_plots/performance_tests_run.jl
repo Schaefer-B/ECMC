@@ -17,15 +17,15 @@ distributions = [MvNormal]
 dimensions = [32]
 adaption_schemes = [GoogleAdaption(automatic_adjusting=true)]
 #direction_change_algorithms = [RefreshDirection(), ReverseDirection(), GradientRefreshDirection(), ReflectDirection(), StochasticReflectDirection()]
-direction_change_algorithms = [ReflectDirection()]
+direction_change_algorithms = [StochasticReflectDirection()]
 #direction_change_algorithms = [RefreshDirection()]
 
 start_deltas = [10^-1]
 step_variances = [0.05]
 variance_algorithms = [NormalVariation()]# evtl checken
-target_acc_values = [0.6]
+target_acc_values = [0.8]
 jumps_before_sample = [5] # checken?
-jumps_before_refresh = [50, 100, 150, 200, 250, 300]
+jumps_before_refresh = [25, 50, 75, 125, 150, 175, 200]
 
 
 #mcmc state stuff:
