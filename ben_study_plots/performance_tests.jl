@@ -12,23 +12,29 @@ using FileIO
 using LaTeXStrings
 using TranscodingStreams
 using CodecZlib
+using AdvancedHMC
 
 #using HypothesisTests
 
 #include("/net/e4-nfs-home.e4.physik.tu-dortmund.de/home/bschaefer/performance_tests/ecmc_cluster.jl")
 include("../ecmc.jl")
 
-#anymeasureordensity => 
-#salvatore lacanina ceph, arbeiten, bachelorarbeiten
-#willy oder robin bachelorarbeiten
-
-# IMPORTANT:
-# no hmc states whatsover rn
-# create_result_state for hmc states is incomplete
-# create_algorithm for hmc states missing as well
 
 
 #-------------structs-----------------
+@with_kw mutable struct OLDTestMeasuresStruct
+    effective_sample_size
+    ks_p_values # Kolmogorov Smirnov
+    chisq_values # can be used to calculate pearson chi square p-values, but also count as a measure on its own
+    normalized_residuals # normally distributed
+
+    samples_mode
+    samples_mean
+    samples_std
+
+    sample_time
+end
+
 @with_kw mutable struct TestMeasuresStruct
     effective_sample_size
     ks_p_values # Kolmogorov Smirnov
@@ -40,6 +46,16 @@ include("../ecmc.jl")
     samples_std
 
     sample_time
+    tuning_time
+end
+
+
+@with_kw mutable struct DebuggingInfo
+    one_d_marginal_samples
+    one_d_marginal_samples_iid
+    
+    one_d_marginal_residuals
+
 end
 
 
@@ -222,13 +238,28 @@ function create_algorithm(p_state::MCMCPerformanceState)
     return algorithm, first
 end
 
+function create_algorithm(p_state::HMCPerformanceState)
+    algorithm = MCMCSampling(
+        mcalg = HamiltonianMC(),
+        nsteps = p_state.nsamples, 
+        nchains = p_state.nchains,
+       
+    )
 
+    first = MCMCSampling(
+        mcalg = HamiltonianMC(),
+        nsteps = 2, 
+        nchains = p_state.nchains,
+        
+    )
+    return algorithm, first
+end
 
 #---------------------------------
 
 
 function run_sampling!(posterior, algorithm, p_state::ECMCPerformanceState)
-    sample = bat_sample(posterior, algorithm)
+    sample_time = @elapsed(sample = bat_sample(posterior, algorithm))
     samples = sample.result
 
     ess = bat_eff_sample_size(samples).result.a
@@ -245,12 +276,12 @@ function run_sampling!(posterior, algorithm, p_state::ECMCPerformanceState)
     p_state.samples = samples
     p_state.effective_sample_size = ess
 
-    return p_state
+    return sample_time
 end
 
 
 function run_sampling!(posterior, algorithm, p_state::MCMCPerformanceState)
-    sample = bat_sample(posterior, algorithm)
+    sample_time = @elapsed(sample = bat_sample(posterior, algorithm))
     samples = sample.result
 
     ess = bat_eff_sample_size(samples).result.a
@@ -258,12 +289,12 @@ function run_sampling!(posterior, algorithm, p_state::MCMCPerformanceState)
     p_state.samples = samples
     p_state.effective_sample_size = ess
 
-    return p_state
+    return sample_time
 end
 
 
 function run_sampling!(posterior, algorithm, p_state::HMCPerformanceState)
-    sample = bat_sample(posterior, algorithm)
+    sample_time = @elapsed(sample = bat_sample(posterior, algorithm))
     samples = sample.result
 
     ess = bat_eff_sample_size(samples).result.a
@@ -271,7 +302,7 @@ function run_sampling!(posterior, algorithm, p_state::HMCPerformanceState)
     p_state.samples = samples
     p_state.effective_sample_size = ess
 
-    return p_state
+    return sample_time
 end
 
 
@@ -293,6 +324,9 @@ function get_residual_values(samples, iid_samples)
 
     chisq_values = []
     normalized_residuals = []
+    one_d_marginal_samples = []
+    one_d_marginal_samples_iid = []
+    one_d_marginal_residuals = []
 
     for d in 1:dimensions
         marginal_samples = [samples[i][d] for i=eachindex(samples)]
@@ -310,6 +344,7 @@ function get_residual_values(samples, iid_samples)
         samples_binned = samples_hist.weights
         iid_samples_binned = iid_samples_hist.weights
         
+        residuals = []
         chisq_value = 0
         for bin in eachindex(iid_samples_binned)
             observed = samples_binned[bin]
@@ -317,55 +352,82 @@ function get_residual_values(samples, iid_samples)
 
             if expected > 10
                 residual = (observed - expected)
-                standard_deviation = sqrt(expected)
+                standard_deviation = sqrt(expected + observed)
 
                 chisq_value += (residual)^2 /expected
 
                 normalized_residual = residual/standard_deviation
                 push!(normalized_residuals, normalized_residual)
+                push!(residuals, residual)
             end
         end
-        push!(chisq_values, chisq_value)  
+        push!(chisq_values, chisq_value)
+
+        if d == 1
+            #one_d_marginal_samples = marginal_samples
+            #one_d_marginal_samples_iid = iid_marginal_samples
+            one_d_marginal_residuals = [residuals[i] for i=eachindex(residuals)]
+        end
+
     end
 
     chisq_values_arr = [chisq_values[i] for i=eachindex(chisq_values)]
     normalized_residuals_arr = [normalized_residuals[i] for i=eachindex(normalized_residuals)]
 
-    return chisq_values_arr, normalized_residuals_arr
+    return chisq_values_arr, normalized_residuals_arr, one_d_marginal_samples, one_d_marginal_samples_iid, one_d_marginal_residuals
 end
 
 
-function calculate_test_measures(samples, effective_sample_size, nsamples, nchains, sample_time, dist)
+function calculate_test_measures(samples, effective_sample_size, nsamples, nchains, sample_time, tuning_time, dist)
 
-    nsamples_iid = nsamples * nchains
-    samples = samples
-    iid_sample = bat_sample(dist, IIDSampling(nsamples=nsamples_iid))
-    iid_samples = iid_sample.result
-
-    effective_sample_size_arr = [effective_sample_size[i] for i=eachindex(effective_sample_size)]
-
-    samples_mode = mode(samples)
-    samples_mode_arr = [samples_mode.a[i] for i = eachindex(samples_mode.a)]
-    samples_mean = mean(samples)
-    samples_mean_arr = [samples_mean.a[i] for i = eachindex(samples_mean.a)]
-    samples_std = std(samples)
-    samples_std_arr = [samples_std.a[i] for i = eachindex(samples_std.a)]
-
-    ks_p_values = get_ks_p_values(samples, iid_samples)
-    chisq_values, normalized_residuals = get_residual_values(samples, iid_samples)
-
-    t = TestMeasuresStruct(
-        effective_sample_size = effective_sample_size_arr,
-        ks_p_values = ks_p_values,
-        chisq_values = chisq_values,
-        normalized_residuals = normalized_residuals,
-        samples_mode = samples_mode_arr,
-        samples_mean = samples_mean_arr,
-        samples_std = samples_std_arr,
+    if nsamples < 4
+        t = TestMeasuresStruct(
+        effective_sample_size = [],
+        ks_p_values = [],
+        chisq_values = [],
+        normalized_residuals = [],
+        samples_mode =  [],
+        samples_mean = [],
+        samples_std = [],
         sample_time = sample_time,
-    )
+        tuning_time = sample_time,
+        )
+        one_d_marginal_samples = []
+        one_d_marginal_samples_iid = []
+        one_d_marginal_residuals = []
+    else
+        nsamples_iid = nsamples * nchains
+        samples = samples
+        iid_sample = bat_sample(dist, IIDSampling(nsamples=nsamples_iid))
+        iid_samples = iid_sample.result
 
-    return t
+        effective_sample_size_arr = [effective_sample_size[i] for i=eachindex(effective_sample_size)]
+
+        samples_mode = mode(samples)
+        samples_mode_arr = [samples_mode.a[i] for i = eachindex(samples_mode.a)]
+        samples_mean = mean(samples)
+        samples_mean_arr = [samples_mean.a[i] for i = eachindex(samples_mean.a)]
+        samples_std = std(samples)
+        samples_std_arr = [samples_std.a[i] for i = eachindex(samples_std.a)]
+
+        ks_p_values = get_ks_p_values(samples, iid_samples)
+        chisq_values, normalized_residuals,  one_d_marginal_samples, one_d_marginal_samples_iid, one_d_marginal_residuals = get_residual_values(samples, iid_samples)
+
+
+
+        t = TestMeasuresStruct(
+            effective_sample_size = effective_sample_size_arr,
+            ks_p_values = ks_p_values,
+            chisq_values = chisq_values,
+            normalized_residuals = normalized_residuals,
+            samples_mode = samples_mode_arr,
+            samples_mean = samples_mean_arr,
+            samples_std = samples_std_arr,
+            sample_time = sample_time,
+            tuning_time = tuning_time,
+        )
+    end
+    return t, one_d_marginal_samples, one_d_marginal_samples_iid, one_d_marginal_residuals
 end
 
 #---------------------------------
@@ -420,7 +482,15 @@ end
 
 
 function create_result_state(p_state::HMCPerformanceState)
+    r_state = HMCResultState(
+    target_distribution = string(p_state.target_distribution),
+    dimension = p_state.dimension,
+    nsamples = p_state.nsamples,
+    nchains = p_state.nchains,
 
+    samples = p_state.samples,
+    effective_sample_size = p_state.effective_sample_size,
+    )
     return r_state
 end
 
@@ -433,13 +503,14 @@ function one_state_run(p_state, runs=1, start_id=1, save_all_samples=false)
     algorithm, first_run_algo = create_algorithm(p_state)
 
     p_temp = p_state
-    temp_time = @elapsed(run_sampling!(posterior, first_run_algo, p_temp))
-
+    temp_time = run_sampling!(posterior, first_run_algo, p_temp)
+    tuning_time = run_sampling!(posterior, first_run_algo, p_temp)
+    
     
     for run in 1:runs
         run_id = run + start_id - 1
         #println("Starting run $run_id for ", string(p_state.target_distribution, p_state.dimension,"D ", p_state.direction_change_algorithm))
-        sample_time = @elapsed(run_sampling!(posterior, algorithm, p_state))
+        sample_time = run_sampling!(posterior, algorithm, p_state)
         #println("Finished run $run_id for ", string(p_state.target_distribution, p_state.dimension,"D ", p_state.direction_change_algorithm))
 
         
@@ -450,13 +521,25 @@ function one_state_run(p_state, runs=1, start_id=1, save_all_samples=false)
             result_state.effective_sample_size = []
         end
 
-        testmeasures = calculate_test_measures(p_state.samples, p_state.effective_sample_size ,p_state.nsamples, p_state.nchains, sample_time, dist)
-        if run_id == start_id
+        testmeasures, one_d_marginal_samples, one_d_marginal_samples_iid, one_d_marginal_residuals = calculate_test_measures(p_state.samples, p_state.effective_sample_size ,p_state.nsamples, p_state.nchains, sample_time, tuning_time, dist)
+        
+        first_run_marginal_samples = []
+        first_run_marginal_samples_iid = []
+        if run_id == start_id && p_state.nsamples > 4
             sample_plot = plot_samples(p_state.samples)
             save_sample_plot(p_state, sample_plot, run_id)
+            first_run_marginal_samples = one_d_marginal_samples
+            first_run_marginal_samples_iid = one_d_marginal_samples_iid
         end
         p_state.samples = []
         p_state.effective_sample_size = []
+
+        debug_i = DebuggingInfo(
+            one_d_marginal_samples = first_run_marginal_samples,
+            one_d_marginal_samples_iid = first_run_marginal_samples_iid,
+            one_d_marginal_residuals = one_d_marginal_residuals
+        )
+        save_debug_info(p_state, debug_i, run_id)
 
         save_test_measures(p_state, testmeasures, run_id)
         
@@ -470,6 +553,11 @@ function multiple_states_run(p_states, runs=1, start_id=1, save_all_samples=fals
     if p_states == []
         return []
     end
+
+    if typeof(p_states[1]) == HMCPerformanceState
+        set_batcontext(ad = ADModule(:ForwardDiff))
+    end
+
     nstates = length(p_states)
     #result_states = Vector{Any}(undef, nstates)
     for p_index in 1:nstates
@@ -505,7 +593,7 @@ end
 #----------------saving functions-------------
 
 function save_state(p_state::ECMCResultState, run_id=1)
-    location = "/net/e4-nfs-home.e4.physik.tu-dortmund.de/home/bschaefer/performance_tests/"
+    location = "/saved_performance_test_result_states/"
     sampler = "ecmc/"
     name = string(p_state.target_distribution, p_state.dimension,"D_", p_state.direction_change_algorithm, p_state.target_acc_value, "target_acc_", p_state.jumps_before_refresh, "jbr")
     name_add = string("_", run_id)
@@ -515,8 +603,10 @@ function save_state(p_state::ECMCResultState, run_id=1)
 end
 
 
+
+
 function save_test_measures(p_state::ECMCPerformanceState, testmeasures, run_id=1) # to save: ess, mean(samples), std(samples), ks-test-p-values, ad-test-p-values, p-chi-p-values, time-elapsed, plot(samples 1-5d)
-    location = "/net/e4-nfs-home.e4.physik.tu-dortmund.de/home/bschaefer/performance_tests/"
+    location = "/saved_performance_test_result_states/"
     sampler = "ecmc/"
     location_add = "test_measures/"
     name = string(p_state.direction_change_algorithm, p_state.target_distribution, p_state.dimension,"D_", p_state.target_acc_value, "target_acc_", p_state.jumps_before_refresh, "jbr_", p_state.nsamples, "samples_", p_state.nchains, "nchains")
@@ -527,10 +617,21 @@ function save_test_measures(p_state::ECMCPerformanceState, testmeasures, run_id=
 end
 
 function save_test_measures(p_state::MCMCPerformanceState, testmeasures, run_id=1) 
-    location = "/net/e4-nfs-home.e4.physik.tu-dortmund.de/home/bschaefer/performance_tests/"
+    location = "/saved_performance_test_result_states/"
     sampler = "mcmc/"
     location_add = "test_measures/"
-    name = string(p_state.direction_change_algorithm, p_state.target_distribution, p_state.dimension,"D_", p_state.target_acc_value, "target_acc_", p_state.jumps_before_refresh, "jbr_", p_state.nsamples, "samples_", p_state.nchains, "nchains")
+    name = string(p_state.target_distribution, p_state.dimension,"D_", p_state.nsamples, "samples_", p_state.nchains, "nchains", "_mcmc")
+    name_add = string("_", run_id)
+    extension = ".jld2"
+    full_name = string(location,sampler,location_add,name,name_add,extension)
+    save(full_name, Dict("testmeasurestruct" => testmeasures); compress = true)
+end
+
+function save_test_measures(p_state::HMCPerformanceState, testmeasures, run_id=1) 
+    location = "/saved_performance_test_result_states/"
+    sampler = "hmc/"
+    location_add = "test_measures/"
+    name = string(p_state.target_distribution, p_state.dimension,"D_", p_state.nsamples, "samples_", p_state.nchains, "nchains", "_hmc")
     name_add = string("_", run_id)
     extension = ".jld2"
     full_name = string(location,sampler,location_add,name,name_add,extension)
@@ -538,11 +639,73 @@ function save_test_measures(p_state::MCMCPerformanceState, testmeasures, run_id=
 end
 
 
+
+function save_debug_info(p_state::ECMCPerformanceState, debug_i, run_id=1) 
+    location = "/saved_performance_test_result_states/"
+    sampler = "ecmc/"
+    location_add = "debug_info/"
+    name = string(p_state.direction_change_algorithm, p_state.target_distribution, p_state.dimension,"D_", p_state.target_acc_value, "target_acc_", p_state.jumps_before_refresh, "jbr_", p_state.nsamples, "samples_", p_state.nchains, "nchains")
+    name_add = string("_", run_id)
+    extension = ".jld2"
+    full_name = string(location,sampler,location_add,name,name_add,extension)
+    save(full_name, Dict("debug_info" => debug_i); compress = true)
+end
+
+
+function save_debug_info(p_state::MCMCPerformanceState, debug_i, run_id=1) 
+    location = "/saved_performance_test_result_states/"
+    sampler = "mcmc/"
+    location_add = "debug_info/"
+    name = string(p_state.target_distribution, p_state.dimension,"D_", p_state.nsamples, "samples_", p_state.nchains, "nchains", "_mcmc")
+    name_add = string("_", run_id)
+    extension = ".jld2"
+    full_name = string(location,sampler,location_add,name,name_add,extension)
+    save(full_name, Dict("debug_info" => debug_i); compress = true)
+end
+
+
+function save_debug_info(p_state::HMCPerformanceState, debug_i, run_id=1) 
+    location = "/saved_performance_test_result_states/"
+    sampler = "hmc/"
+    location_add = "debug_info/"
+    name = string(p_state.target_distribution, p_state.dimension,"D_", p_state.nsamples, "samples_", p_state.nchains, "nchains", "_hmc")
+    name_add = string("_", run_id)
+    extension = ".jld2"
+    full_name = string(location,sampler,location_add,name,name_add,extension)
+    save(full_name, Dict("debug_info" => debug_i); compress = true)
+end
+
+
 function save_sample_plot(p_state::ECMCPerformanceState, sample_plot, run_id=1)
-    location = "/net/e4-nfs-home.e4.physik.tu-dortmund.de/home/bschaefer/performance_tests/"
+    location = "/saved_performance_test_result_states/"
     sampler = "ecmc/"
     location_add = "sample_plots/"
     name = string(p_state.direction_change_algorithm, p_state.target_distribution, p_state.dimension,"D_", p_state.target_acc_value, "target_acc_", p_state.jumps_before_refresh, "jbr_", p_state.nsamples, "samples_", p_state.nchains, "nchains")
+    name_add = string("_", run_id)
+    extension = ".png"
+    full_name = string(location,sampler,location_add,name,name_add,extension)
+    savefig(sample_plot, full_name)
+end
+
+
+function save_sample_plot(p_state::MCMCPerformanceState, sample_plot, run_id=1)
+    location = "/saved_performance_test_result_states/"
+    sampler = "mcmc/"
+    location_add = "sample_plots/"
+    name = string(p_state.target_distribution, p_state.dimension,"D_", p_state.nsamples, "samples_", p_state.nchains, "nchains", "_mcmc")
+    name_add = string("_", run_id)
+    extension = ".png"
+    full_name = string(location,sampler,location_add,name,name_add,extension)
+    savefig(sample_plot, full_name)
+end
+
+
+
+function save_sample_plot(p_state::HMCPerformanceState, sample_plot, run_id=1)
+    location = "/saved_performance_test_result_states/"
+    sampler = "hmc/"
+    location_add = "sample_plots/"
+    name = string(p_state.target_distribution, p_state.dimension,"D_", p_state.nsamples, "samples_", p_state.nchains, "nchains", "_hmc")
     name_add = string("_", run_id)
     extension = ".png"
     full_name = string(location,sampler,location_add,name,name_add,extension)

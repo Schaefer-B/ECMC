@@ -23,20 +23,20 @@ function create_alpha_array(α_start, α_end, steps)
     return arr
 end
 
-function create_algorithm(start_delta, Direction, automatic_alpha=true, jb_refresh=50)
+function create_algorithm(start_delta, Direction, automatic_alpha=true, jb_refresh=100)
     algorithm = ECMCSampler(
         trafo = PriorToUniform(),
-        nsamples= 1,
+        nsamples= 2,
         nburnin = 0,
         nchains = 1,
         chain_length=5, 
         remaining_jumps_before_refresh = jb_refresh,
         step_amplitude = start_delta,
         factorized = false,
-        step_var = 0.2,
-        variation_type = UniformVariation(),
+        step_var = 0.05,
+        variation_type = NoVariation(),
         direction_change = Direction,
-        tuning = MFPSTuner(adaption_scheme=GoogleAdaption(automatic_adjusting=automatic_alpha), max_n_steps = 2*10^4),
+        tuning = MFPSTuner(adaption_scheme=GoogleAdaption(automatic_adjusting=automatic_alpha), max_n_steps = 3*10^4),
     )
     return algorithm
 end
@@ -106,9 +106,10 @@ function convergence_run(density, algorithm, nchains, α)
     std_steps = std(steps_per_chain)
     std_delta = mean(std_delta_per_chain)
     tuned_delta = mean(deltas_per_chain)
+    tuned_delta_std = std(deltas_per_chain)
     n_notconverged = sum(notconverged)
 
-    return mean_steps, std_steps, std_delta, tuned_delta, n_notconverged
+    return mean_steps, std_steps, std_delta, tuned_delta, n_notconverged, tuned_delta_std
 end
 
 
@@ -131,19 +132,20 @@ function run_all(start_delta, α_arr, runs, distribution, dimension, dir_algo, a
     std_steps = Vector{Float64}(undef, k)
     std_delta = Vector{Float64}(undef, k)
     tuned_delta = Vector{Float64}(undef, k)
+    tuned_delta_std = Vector{Float64}(undef, k)
     n_notconverged = Vector{Int64}(undef, k)
 
     Threads.@threads for a in 1:k
-        mean_steps[a], std_steps[a], std_delta[a], tuned_delta[a], n_notconverged[a] = convergence_run(density, algorithm, runs, α_arr[a]) 
+        mean_steps[a], std_steps[a], std_delta[a], tuned_delta[a], n_notconverged[a], tuned_delta_std[a] = convergence_run(density, algorithm, runs, α_arr[a]) 
     end
 
-    return mean_steps, std_steps, std_delta, tuned_delta, n_notconverged
+    return mean_steps, std_steps, std_delta, tuned_delta, n_notconverged, tuned_delta_std
 end
 
 
 #----------------functions for plotting------------------
 
-function plot_one_algo(α_arr, mean_steps, std_steps, std_delta_percentage, tuned_deltas, n_notconverged, runs, automatic_alpha, std_check)
+function plot_one_algo(α_arr, mean_steps, std_steps, std_delta_percentage, tuned_deltas, n_notconverged, runs, automatic_alpha, std_check, tuned_delta_std)
 
     gr(size=(1.3*850, 1.3*600), thickness_scaling = 1.5)
 
@@ -161,10 +163,10 @@ function plot_one_algo(α_arr, mean_steps, std_steps, std_delta_percentage, tune
     #plot!(yaxis=:log)
 
     #---------second plot---------
-    lower = tuned_deltas .* (1 .-std_delta_percentage)
-    upper = tuned_deltas .* (1 .+std_delta_percentage)
+    lower = tuned_delta_std
+    upper = tuned_delta_std
     #plot_delta_mean = plot(α_arr, tuned_deltas, lw=2, label="Mean of tuned deltas", xlabel="α" , ylabel="Delta", ribbon=(lower, upper))
-    plot_delta_mean = plot(α_arr, tuned_deltas, lw=2, label="Delta result", xlabel="α" , ylabel="Delta")
+    plot_delta_mean = plot(α_arr, tuned_deltas, lw=2, label="Delta result", xlabel="α" , ylabel="Delta", ribbon=(lower, upper))
 
 
     #---------third plot---------
@@ -185,6 +187,49 @@ function plot_one_algo(α_arr, mean_steps, std_steps, std_delta_percentage, tune
     return p
 end
 
+function plot_steps(α_arr, mean_steps, std_steps)
+
+    gr(size=(800, 400), thickness_scaling = 1.5)
+
+
+    #---------first plot---------
+    lower = std_steps
+    upper = std_steps
+    #plot!(α_arr, mean_steps, lw=2, label="Mean steps with standard deviation", xlabel="α" , ylabel="Steps", ribbon=(mean_steps-std_steps, mean_steps+std_steps))
+    plot_alpha = plot(α_arr, mean_steps, lw=2, xlabel="α", label = "Mean of steps until tuning convergence", ylabel="Steps", ribbon=(lower, upper))
+    #plot!(yaxis=:log)
+
+
+    plot!(xaxis=:log)
+    plot!(xlims=(10^-4,Inf))
+    #plot!(xlims=(α_arr[1],Inf))
+    return plot_alpha
+end
+
+
+
+function plot_delta(α_arr, tuned_deltas, tuned_delta_std)
+
+    gr(size=(800, 400), thickness_scaling = 1.5)
+
+    #---------second plot---------
+    lower = tuned_delta_std
+    upper = tuned_delta_std
+    #plot_delta_mean = plot(α_arr, tuned_deltas, lw=2, label="Mean of tuned deltas", xlabel="α" , ylabel="Delta", ribbon=(lower, upper))
+    plot_delta_mean = plot(α_arr, tuned_deltas, lw=2, label="Mean of chosen delta values", xlabel="α" , ylabel="Delta", ribbon=(lower, upper))
+
+
+    #---------third plot---------
+    
+
+    #---------combine all plots---------
+    
+    plot!(xaxis=:log)
+    plot!(xlims=(10^-4,Inf))
+    #plot!(xlims=(α_arr[1],Inf))
+    return plot_delta_mean
+end
+
 
 
 function bigplot(distribution, runs = 50, steps=30, automatic_alpha=false)
@@ -193,13 +238,13 @@ function bigplot(distribution, runs = 50, steps=30, automatic_alpha=false)
     runs = runs
     automatic_alpha = automatic_alpha
     
-    direction_algo = StochasticReflectDirection()
+    direction_algo = ReflectDirection()
     
     α_arr = create_alpha_array(0.0001, 10, steps)
     
-    mean_steps, std_steps, std_delta_percentage, tuned_deltas, n_notconverged = run_all(start_delta, α_arr, runs, distribution, dimension, direction_algo, automatic_alpha)
-    p = plot_one_algo(α_arr, mean_steps, std_steps, std_delta_percentage, tuned_deltas, n_notconverged, runs, automatic_alpha, false)
-    return mean_steps, std_steps, std_delta_percentage, tuned_deltas, n_notconverged, p
+    mean_steps, std_steps, std_delta_percentage, tuned_deltas, n_notconverged, tuned_delta_std = run_all(start_delta, α_arr, runs, distribution, dimension, direction_algo, automatic_alpha)
+    p = plot_one_algo(α_arr, mean_steps, std_steps, std_delta_percentage, tuned_deltas, n_notconverged, runs, automatic_alpha, false, tuned_delta_std)
+    return mean_steps, std_steps, std_delta_percentage, tuned_deltas, n_notconverged, tuned_delta_std, p
 end
 
 function smallplot(distribution, runs=50, steps=30, automatic_alpha=false)
@@ -208,35 +253,56 @@ function smallplot(distribution, runs=50, steps=30, automatic_alpha=false)
     runs = runs
     automatic_alpha = automatic_alpha
     
-    direction_algo = StochasticReflectDirection()
+    direction_algo = ReflectDirection()
     
     α_arr = create_alpha_array(0.001, 1, steps)
     
-    mean_steps, std_steps, std_delta_percentage, tuned_deltas, n_notconverged = run_all(start_delta, α_arr, runs, distribution, dimension, direction_algo, automatic_alpha)
+    mean_steps, std_steps, std_delta_percentage, tuned_deltas, n_notconverged, tuned_delta_std = run_all(start_delta, α_arr, runs, distribution, dimension, direction_algo, automatic_alpha)
     
-    p = plot_one_algo(α_arr, mean_steps, std_steps, std_delta_percentage, tuned_deltas, n_notconverged, runs, automatic_alpha, true)
-    return mean_steps, std_steps, std_delta_percentage, tuned_deltas, n_notconverged, p
+    p = plot_one_algo(α_arr, mean_steps, std_steps, std_delta_percentage, tuned_deltas, n_notconverged, runs, automatic_alpha, true, tuned_delta_std)
+    return mean_steps, std_steps, std_delta_percentage, tuned_deltas, n_notconverged, tuned_delta_std, p
 end
 
 
 #------------------initializing, running and plotting----------------
 start_delta = 10^0
-distribution = funnel
-dimension = 32
-runs = 50
-automatic_alpha = false
+distribution = mvnormal
+dimension = 64
+runs = 10
+automatic_alpha = true
+
+
 
 
 #----
-direction_algo = StochasticReflectDirection()
-α_arr = create_alpha_array(0.001, 1, 100)
+direction_algo = ReflectDirection()
+α_arr = create_alpha_array(0.00004, 4, 60)
+#α_arr = create_alpha_array(4, 10, 4)
+#α_arr[2]
+mean_steps, std_steps, std_delta_percentage, tuned_deltas, n_notconverged, tuned_delta_std = run_all(start_delta, α_arr, runs, distribution, dimension, direction_algo, automatic_alpha)
 
-mean_steps, std_steps, std_delta_percentage, tuned_deltas, n_notconverged = run_all(start_delta, α_arr, runs, distribution, dimension, direction_algo, automatic_alpha)
 
-display_std_delta = false
-plot_one_algo(α_arr, mean_steps, std_steps, std_delta_percentage, tuned_deltas, n_notconverged, runs, automatic_alpha, display_std_delta)
+step_plot = plot_steps(α_arr, mean_steps, std_steps)
+delta_plot = plot_delta(α_arr, tuned_deltas, tuned_delta_std)
+
+savefig(step_plot, "04_step_plot1.png")
+savefig(step_plot, "04_step_plot2.png")
+savefig(step_plot, "04_step_plot_automatic.png")
+
+savefig(delta_plot, "04_delta_plot1.png")
+savefig(delta_plot, "04_delta_plot2.png")
+savefig(delta_plot, "04_delta_plot_automatic.png")
+
+#--------------------------------
+
+
+
+
+#display_std_delta = true
+#plot_one_algo(α_arr, mean_steps, std_steps, std_delta_percentage, tuned_deltas, n_notconverged, runs, automatic_alpha, display_std_delta, tuned_delta_std)
+
 #----
-
+tuned_delta_std
 
 mean_steps, std_steps, std_delta_percentage, tuned_deltas, n_notconverged, bplot = bigplot(distribution, 20, 60, automatic_alpha)
 bplot

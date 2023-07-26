@@ -285,8 +285,11 @@ function  convert_to_BAT_samples(samples, density)
     new_samples = []
 
     nchains = length(samples)
-
+    #println("While converting: this is nchains = ", nchains)
+    #println("and this is samples = ", samples)
     for c in 1:nchains
+        #println("and this is c = ", c)
+        #println("and samples[c] = ", samples[c])
         n_samples = length(samples[c])
         sample_id = fill(BAT.MCMCSampleID(c, 0, 0, 0), n_samples)
 

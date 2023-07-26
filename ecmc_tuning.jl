@@ -13,7 +13,7 @@ export ECMCNoTuner
 @with_kw struct MFPSTuner{A<:ECMCStepSizeAdaptor, C<:ECMCTuningConvergenceCheck} <: ECMCTuner
     target_mfps::Float64 = 3.
     target_acc::Float64 = target_mfps / (target_mfps  + 1)
-    max_n_steps::Int64 = 6*10^4
+    max_n_steps::Int64 = 3*10^4
     adaption_scheme::A = NaiveAdaption() #NaiveAdaption() 
     #tuning_convergence_check::C = (target_mfps == 0. ? AcceptanceRatioConvergence(target_acc = target_acc) : AcceptanceRatioConvergence(target_acc = target_mfps / (target_mfps  + 1)))
     tuning_convergence_check::C = AcceptanceRatioConvergence(target_acc = target_acc)

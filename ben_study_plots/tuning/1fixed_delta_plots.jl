@@ -28,13 +28,13 @@ function create_delta_array(delta_start, delta_end, steps)
     return arr
 end
 
-function create_algorithm(delta, nsamples, Direction, step_var=0., var_type = NoVariation(), jb_refresh=50)
+function create_algorithm(delta, nsamples, Direction, step_var=0., var_type = NoVariation(), jb_refresh=100)
     algorithm = ECMCSampler(
         trafo = PriorToUniform(),
         nsamples= nsamples,
         nburnin = 0,
         nchains = 1,
-        chain_length=20, 
+        chain_length=5, 
         remaining_jumps_before_refresh = jb_refresh,
         step_amplitude = delta,
         factorized = false,
@@ -121,7 +121,7 @@ end
 
 
 
-function run_one_algo(delta_tests_arr, nsamples, runs, distribution, dimension, dir_algo, step_var=0.1, var_type = NoVariation(), jb_refresh=50)
+function run_one_algo(delta_tests_arr, nsamples, runs, distribution, dimension, dir_algo, step_var=0.1, var_type = NoVariation(), jb_refresh=100)
 
     likelihood, prior = distribution(dimension);
     posterior = PosteriorMeasure(likelihood, prior);
@@ -146,7 +146,7 @@ function run_one_algo(delta_tests_arr, nsamples, runs, distribution, dimension, 
 end
 
 
-function run_all_algos(delta_tests_arr, nsamples, runs, distribution, dimension, dir_algos, step_var=0.1, var_type = NoVariation(), jb_refresh=50)
+function run_all_algos(delta_tests_arr, nsamples, runs, distribution, dimension, dir_algos, step_var=0.1, var_type = NoVariation(), jb_refresh=100)
 
     algo_count = length(dir_algos)
     mean_accs = Vector{Vector{Float64}}(undef, algo_count)
@@ -208,7 +208,7 @@ end
 function plot_accs(delta_tests_arr, mean_accs, std_accs, ess_arrays, direction_algos)
 
 
-    gr(size=(1.3*850, 1.3*800), thickness_scaling = 1.5)
+    gr(size=(800, 400), thickness_scaling = 1.5)
 
     algo_count = length(direction_algos)
     
@@ -234,17 +234,17 @@ function plot_accs(delta_tests_arr, mean_accs, std_accs, ess_arrays, direction_a
 
         ribbon_lower = - std_accs[algo_index]
         ribbon_upper = std_accs[algo_index]
-        final_plot = plot!(delta_tests_arr, mean_accs[algo_index], lw=2, title=label, xlims=(delta_tests_arr[1],Inf), ylims=(0. , 1.), subplot=algo_index, ribbon=(ribbon_lower, ribbon_upper))
-        final_plot = plot!(xlabel="Delta", ylabel="Acceptance rate", subplot=algo_index)
+        final_plot = plot!(delta_tests_arr, mean_accs[algo_index], lw=2, xlims=(delta_tests_arr[1],Inf), ylims=(0. , 1.), subplot=algo_index, ribbon=(ribbon_lower, ribbon_upper))
+        final_plot = plot!(xlabel="Steplength", ylabel="Acceptance rate", subplot=algo_index)
         
 
         x_diff = maximum(delta_tests_arr) - minimum(delta_tests_arr)
         x_translation = 0.94#- x_diff*0.01
-        for delta_index in eachindex(m_delta)
-            final_plot = plot!([m_delta[delta_index]], st=:vline, lw=2, subplot=algo_index, color=:red)
-            annotate!((m_delta[delta_index]*x_translation), 0.12, text(string("Delta = ", round(m_delta[delta_index], digits=5)), :red, :right, 8), subplot=algo_index)
-            annotate!((m_delta[delta_index]*x_translation), 0.06, text(string("Acc. rate = ", round(mean_accs[algo_index][m_index[delta_index]], digits=5)), :red, :right, 8), subplot=algo_index)
-        end
+        #for delta_index in eachindex(m_delta)
+        #    final_plot = plot!([m_delta[delta_index]], st=:vline, lw=2, subplot=algo_index, color=:red)
+        #    annotate!((m_delta[delta_index]*x_translation), 0.12, text(string("Delta = ", round(m_delta[delta_index], digits=5)), :red, :right, 8), subplot=algo_index)
+        #    annotate!((m_delta[delta_index]*x_translation), 0.06, text(string("Acc. rate = ", round(mean_accs[algo_index][m_index[delta_index]], digits=5)), :red, :right, 8), subplot=algo_index)
+        #end
 
     end
     final_plot = plot!(legend = false)
@@ -356,31 +356,31 @@ end
 #------------------initializing, running and plotting----------------
 distribution = mvnormal
 dimension = 16
-nsamples = 5*10^5
-runs = 4
+nsamples = 1*10^5
+runs = 4 # = nchains
 
-direction_algos = [RefreshDirection(), ReverseDirection(), ReflectDirection(), StochasticReflectDirection()]
-direction_algos = [StochasticReflectDirection()]
-delta_tests_arr = create_delta_array(0.001, 0.1, 20)
+#direction_algos = [RefreshDirection(), ReverseDirection(), ReflectDirection(), StochasticReflectDirection()]
+direction_algos = [ReflectDirection()]
+delta_tests_arr = create_delta_array(0.001, 1, 32)
 
 
 #---
 mean_accs, std_accs, ess_arrays, mean_diffs = run_all_algos(delta_tests_arr, nsamples, runs, distribution, dimension, direction_algos)
 
-best_accs, best_mfps = find_mean(ess_arrays, delta_tests_arr, mean_accs, direction_algos)
+#best_accs, best_mfps = find_mean(ess_arrays, delta_tests_arr, mean_accs, direction_algos)
 
 # result: best_accs = refresh: 0.3452185204245507  reverse: 0.6312359472313176  reflect: 0.6497585289605811  stochasticreflect: 0.6156345388184439
 
 #---
 p = plot_accs(delta_tests_arr, mean_accs, std_accs, ess_arrays, direction_algos)
+p
+#p_ess = plot_mean_ess(delta_tests_arr, mean_accs, ess_arrays, direction_algos)
 
-p_ess = plot_mean_ess(delta_tests_arr, mean_accs, ess_arrays, direction_algos)
-
-p_diff = plot_mean_diffs(delta_tests_arr, mean_accs, mean_diffs, ess_arrays, direction_algos)
+#p_diff = plot_mean_diffs(delta_tests_arr, mean_accs, mean_diffs, ess_arrays, direction_algos)
 
 #
 
-png("mean_of_diff_to_mean_all_directions")
+savefig("04_bijective.pdf") 
 
 
 

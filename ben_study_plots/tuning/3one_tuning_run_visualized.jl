@@ -15,8 +15,9 @@ using HypothesisTests
 include("../test_distributions.jl")
 
 #-----------------
-dims = 30
+dims = 16
 likelihood, prior = mvnormal(dims)
+likelihood, prior = funnel(dims)
 posterior = PosteriorMeasure(likelihood, prior);
 
 
@@ -26,13 +27,13 @@ posterior = PosteriorMeasure(likelihood, prior);
 #for plotting
 function idontwannacalliteverytime(title = "Test", everyaxis=false)
 
-    gr(size=(1.3*850, 1.3*600), thickness_scaling = 1.5)
+    gr(size=(800, 800), thickness_scaling = 1.5)
 
     acc_C = tuning_state.acc_C
     n_steps = tuning_state.n_steps
     Npercent = 0.3
     n_abs = 180
-    standard_deviation = 0.001
+    standard_deviation = 0.003
     rel_dif_mean = 0.01 
     
     new_acc_C = []
@@ -64,9 +65,9 @@ function idontwannacalliteverytime(title = "Test", everyaxis=false)
 
 
     plot_acceptance = plot(title=title)
-    plot!(new_acc_C, lw=2, label="Current ratio", ylabel="Acceptance ratio")
+    plot!(new_acc_C, lw=2, label="Current acceptance rate", ylabel="Acc. rate")
     target_acc = algorithm.tuning.tuning_convergence_check.target_acc
-    plot!([target_acc], st=:hline, lw=2, label="Target ratio")
+    plot!([target_acc], st=:hline, lw=2, label="Target acceptance rate")
     #plot!(ylims=(0.6, 1.))
     if everyaxis == true
         plot!(xlabel="Steps")
@@ -91,7 +92,7 @@ function idontwannacalliteverytime(title = "Test", everyaxis=false)
     start_step += 2 # temporary so it looks better
     x = (start_step):(n_steps)
     y = current_std_arr[start_step:end]
-    plot_std = plot((x, y), lw=2, label = "Current std of acc. ratio", ylabel="Standard deviation")
+    plot_std = plot((x, y), lw=2, label = "Current std of acc. rate", ylabel="Standard deviation")
     plot!(ylims=(0, Inf))
     plot!(xlims=(0, Inf))
     plot!([0.003], st=:hline, lw=2, label="Convergence boundary")
@@ -100,7 +101,7 @@ function idontwannacalliteverytime(title = "Test", everyaxis=false)
 
 
     p = plot(plot_acceptance, plot_delta, plot_std, layout=(3,1) ,legend=true)
-    plot!(xlims=(0, Inf))
+    plot!(xlims=(0, n_steps))
     return p
 end
 
@@ -121,17 +122,18 @@ ENV["JULIA_DEBUG"] = "BAT"
 
 algorithm = ECMCSampler(
     trafo = PriorToUniform(),
-    nsamples= 2*10^4,
+    nsamples= 1*10^5,
     nburnin = 0,
-    nchains = 4,
+    nchains = 2,
     chain_length=5, 
     remaining_jumps_before_refresh=100,
-    step_amplitude = 0.1,
+    step_amplitude = 0.5,
     factorized = false,
-    step_var=0.1,
-    variation_type = NormalVariation(),
-    direction_change = RefreshDirection(),
-    tuning = MFPSTuner(target_acc=0.3, adaption_scheme=GoogleAdaption(automatic_adjusting=true), max_n_steps = 2*10^4, starting_alpha=0.1),
+    step_var=0.05,
+    variation_type = NoVariation(),
+    direction_change = ReflectDirection(),
+    #tuning = ECMCNoTuner(),
+    tuning = MFPSTuner(target_acc=0.8, adaption_scheme=GoogleAdaption(automatic_adjusting=true), max_n_steps = 2*10^4, starting_alpha=0.1),
 );
 
 #state = sample.ecmc_state[1].n_acc/sample.ecmc_state[1].n_steps
@@ -139,12 +141,15 @@ algorithm = ECMCSampler(
 run_time = @elapsed(ecmcsample = bat_sample(posterior, algorithm))
 ecmc_samples = ecmcsample.result
 
-
 tuning_state = ecmcsample.ecmc_tuning_state[1] # tuning state for chain 1
 state = ecmcsample.ecmc_state[1]
 
-tuner_plot = idontwannacalliteverytime("Google tuning with adjusting, Funnel 2048D", true)
+tuner_plot = idontwannacalliteverytime("", true)
 
+savefig(tuner_plot, "04_google_one_alpha.png")
+
+state.n_acc/state.n_steps
+#--------------------------
 
 plot(samples, nbins=100)
 using LaTeXStrings
@@ -266,8 +271,28 @@ tuning_state.tuned_delta
 
 
 
+algorithm = ECMCSampler(
+    trafo = PriorToUniform(),
+    nsamples= 1*10^6,
+    nburnin = 0,
+    nchains = 4,
+    chain_length=5, 
+    remaining_jumps_before_refresh=100,
+    step_amplitude = 0.1,
+    factorized = false,
+    step_var=0.05,
+    variation_type = NormalVariation(),
+    direction_change = ReflectDirection(),
+    tuning = MFPSTuner(target_acc=0.5, adaption_scheme=GoogleAdaption(automatic_adjusting=true), max_n_steps = 2*10^4, starting_alpha=0.1),
+);
 
 
+ecmc_time = @elapsed(ecmc_sample = bat_sample(posterior, algorithm))
+#mcmc_sample = bat_sample(posterior, MCMCSampling(mcalg = MetropolisHastings(), nsteps = 2*10^5, nchains = 4))
+ecmc_samples = ecmc_sample.result
+
+ecmc_ess = bat_eff_sample_size(ecmc_samples).result.a
+ecmc_ess_time = mean(ecmc_ess)/ecmc_time
 
 
 
@@ -320,11 +345,29 @@ samples = sample.result;
 
 
 
+
+
+mcmc_nsamples = 1*10^5
+nburninsteps_per_cycle = 0.5*10^5
+nburnin_max_cycles = 100
+mcmc_nchains = 4
+mcmc_sampler = MCMCSampling(
+        mcalg = MetropolisHastings(),
+        nsteps = mcmc_nsamples, 
+        nchains = mcmc_nchains,
+        burnin = MCMCMultiCycleBurnin(nsteps_per_cycle = nburninsteps_per_cycle, max_ncycles = nburnin_max_cycles),
+        convergence = BrooksGelmanConvergence(),
+)
 #comparison to mcmc
-mcmc_sample = bat_sample(posterior, MCMCSampling(mcalg = MetropolisHastings(), nsteps = 2*10^5, nchains = 4))
+mcmc_time = @elapsed(mcmc_sample = bat_sample(posterior, mcmc_sampler))
+#mcmc_sample = bat_sample(posterior, MCMCSampling(mcalg = MetropolisHastings(), nsteps = 2*10^5, nchains = 4))
 mcmc_samples = mcmc_sample.result
-plot(mcmc_samples)
-bat_eff_sample_size(mcmc_samples).result.a
+v = length(mcmc_samples.v)
+w = sum(mcmc_samples.weight)
+wp = sum(mcmc_samples.weight)/(mcmc_nsamples*mcmc_nchains)
+#plot(mcmc_samples)
+mcmc_ess = bat_eff_sample_size(mcmc_samples).result.a
+mcmc_ess_time = mean(mcmc_ess)/mcmc_time
 
 mcmc_ESS = 0
 for ess_per_dim in bat_eff_sample_size(mcmc_samples).result.a

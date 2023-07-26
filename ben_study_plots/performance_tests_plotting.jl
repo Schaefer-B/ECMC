@@ -5,51 +5,17 @@ include("performance_tests_all_runs_listed.jl")
 
 
 
-function min_max_mean_ess(effective_sample_size_arr)
-    a = effective_sample_size_arr
 
-    if typeof(a[1]) == typeof(1.)
-        a = [a]
+function state_fusion(a_states, b_states)
+    both_states = []
+    for i in eachindex(a_states)
+        push!(both_states, a_states[i])
+    end
+    for i in eachindex(b_states)
+        push!(both_states, b_states[i])
     end
 
-    min_ess_arr = [minimum(a[i]) for i=eachindex(a)]
-
-    min_ess = mean(min_ess_arr)
-    std_min_ess = std(min_ess_arr)
-
-    return min_ess, std_min_ess
-end
-
-
-
-function min_max_mean_ess(effective_sample_size_arr)
-    a = effective_sample_size_arr
-
-    if typeof(a[1]) == typeof(1.)
-        a = [a]
-    end
-
-    max_ess_arr = [maximum(a[i]) for i=eachindex(a)]
-    
-    min_ess = mean(min_ess_arr)
-    std_min_ess = std(min_ess_arr)
-
-    return min_ess, std_min_ess
-end
-
-function min_max_mean_ess(effective_sample_size_arr)
-    a = effective_sample_size_arr
-
-    if typeof(a[1]) == typeof(1.)
-        a = [a]
-    end
-
-    min_ess_arr = [minimum(a[i]) for i=eachindex(a)]
-    
-    min_ess = mean(min_ess_arr)
-    std_min_ess = std(min_ess_arr)
-
-    return min_ess, std_min_ess
+    return both_states
 end
 
 #----------------------loading functions-----------------------------------
@@ -87,6 +53,43 @@ function load_test_measures(p_state::ECMCPerformanceState, run_ids=1:1)
 end
 
 
+
+function load_test_measures(p_state::MCMCPerformanceState, run_ids=1:1)
+    t_measures = []
+
+    location = "ben_study_plots/saved_performance_test_result_states/"
+    sampler = "mcmc/"
+    location_add = "test_measures/"
+    name = string(p_state.target_distribution, p_state.dimension,"D_", p_state.nsamples, "samples_", p_state.nchains, "nchains", "_mcmc")
+    
+    for run_id in run_ids
+        name_add = string("_", run_id)
+        extension = ".jld2"
+        full_name = string(location,sampler,location_add,name,name_add,extension)
+        t = load(full_name, "testmeasurestruct")
+        push!(t_measures, t)
+    end
+    return t_measures
+end
+
+
+function load_test_measures(p_state::HMCPerformanceState, run_ids=1:1)
+    t_measures = []
+
+    location = "ben_study_plots/saved_performance_test_result_states/"
+    sampler = "hmc/"
+    location_add = "test_measures/"
+    name = string(p_state.target_distribution, p_state.dimension,"D_", p_state.nsamples, "samples_", p_state.nchains, "nchains", "_hmc")
+    
+    for run_id in run_ids
+        name_add = string("_", run_id)
+        extension = ".jld2"
+        full_name = string(location,sampler,location_add,name,name_add,extension)
+        t = load(full_name, "testmeasurestruct")
+        push!(t_measures, t)
+    end
+    return t_measures
+end
 
 
 
@@ -287,71 +290,120 @@ end
 
 
 
-function plot_ess_time(p_states, test_measures_states, runs)
+function plot_ess_time(p_states, mcmc_states, hmc_states, runs)
 
     gr(size=(1.3*850, 1.3*800), thickness_scaling = 1.5)
     location = "plots/"
+
+    ess_time_plot = plot(xlabel="Dimension", ylabel="ESS/s")
     
-    p_states = [p_states[i] for i=eachindex(p_states)]
-    direction_algos_temp = [string(p_states[i].direction_change_algorithm) for i=eachindex(p_states)]
-    direction_algos = unique(direction_algos_temp)
-    #println("unique direction algos = ", direction_algos)
 
-    ess_time_plots = []
+    if p_states != []
+        p_states = [p_states[i] for i=eachindex(p_states)]
+        ecmc_t_measures = [load_test_measures(p_states[i], 1:runs) for i=eachindex(p_states)]
 
-    for dir_algo in direction_algos
-        
-        one_dir_indices = findall(x -> string(x.direction_change_algorithm) == dir_algo ? true : false, p_states)
-        #p_algo_states = p_states(one_dir_indices)
+        direction_algos_temp = [string(p_states[i].direction_change_algorithm) for i=eachindex(p_states)]
+        direction_algos = unique(direction_algos_temp)
 
+        for dir_algo in direction_algos
+            one_dir_indices = findall(x -> string(x.direction_change_algorithm) == dir_algo ? true : false, p_states)
+
+            ess_time_mean_arr = []
+            ess_time_std_arr = []
+            
+            for dim_index in one_dir_indices # for loop over dimensions
+                
+                test_measures = ecmc_t_measures[dim_index]
+                
+                ess_time_runs = [mean(test_measures[i].effective_sample_size)/(test_measures[i].sample_time - test_measures[i].tuning_time) for i=eachindex(test_measures)]
+                ess_time_mean = mean(ess_time_runs)
+                ess_time_std = std(ess_time_runs)
+
+                push!(ess_time_mean_arr, ess_time_mean)
+                push!(ess_time_std_arr, ess_time_std)
+
+
+
+            end
+
+            x_values = [p_states[i].dimension for i=one_dir_indices]
+
+            ess_time_plot = plot!(x_values, ess_time_mean_arr, ribbon=(ess_time_std_arr,ess_time_std_arr), label=dir_algo)
+        end
+    end
+
+
+    if mcmc_states != []
+        mcmc_states = [mcmc_states[i] for i=eachindex(mcmc_states)]
+        mcmc_t_measures = [load_test_measures(mcmc_states[i], 1:runs) for i=eachindex(mcmc_states)]
 
         ess_time_mean_arr = []
         ess_time_std_arr = []
         
-        for dim_index in one_dir_indices # for loop over dimensions
-            
+        for dim_index in eachindex(mcmc_states)
 
-            test_measures = test_measures_states[dim_index]
+            test_measures = mcmc_t_measures[dim_index]
             
-            ess_time_runs = [mean(test_measures[i].effective_sample_size)/test_measures[i].sample_time for i=eachindex(test_measures)]
+            ess_time_runs = [mean(test_measures[i].effective_sample_size)/(test_measures[i].sample_time - test_measures[i].tuning_time) for i=eachindex(test_measures)]
             ess_time_mean = mean(ess_time_runs)
             ess_time_std = std(ess_time_runs)
+
             push!(ess_time_mean_arr, ess_time_mean)
             push!(ess_time_std_arr, ess_time_std)
 
+        end
 
+        x_values = [mcmc_states[i].dimension for i=eachindex(mcmc_states)]
+
+        ess_time_plot = plot!(x_values, ess_time_mean_arr, ribbon=(ess_time_std_arr,ess_time_std_arr), label="Metropolis-Hastings")
+    end
+
+
+    if hmc_states != []
+        hmc_states = [hmc_states[i] for i=eachindex(hmc_states)]
+        hmc_t_measures = [load_test_measures(hmc_states[i], 1:runs) for i=eachindex(hmc_states)]
+
+        ess_time_mean_arr = []
+        ess_time_std_arr = []
+        
+        for dim_index in eachindex(hmc_states)
+
+            test_measures = hmc_t_measures[dim_index]
+            
+            ess_time_runs = [mean(test_measures[i].effective_sample_size)/(test_measures[i].sample_time - test_measures[i].tuning_time) for i=eachindex(test_measures)]
+            ess_time_mean = mean(ess_time_runs)
+            ess_time_std = std(ess_time_runs)
+
+            push!(ess_time_mean_arr, ess_time_mean)
+            push!(ess_time_std_arr, ess_time_std)
 
         end
 
-        x_values = [p_states[i].dimension for i=one_dir_indices]
+        x_values = [hmc_states[i].dimension for i=eachindex(hmc_states)]
 
-        ess_time_plot = plot(x_values, ess_time_mean_arr, ribbon=(ess_time_std_arr,ess_time_std_arr))
-        plot!(xlabel="Dimension", ylabel="Mean of ESS per sample time", legend=false)
-        name = string("ess_time_", dir_algo)
-        full = string(location, name)
-        png(full)
-        
-        
-        
-
-        
-
-
-
-        push!(ess_time_plots, ess_time_plot)
+        ess_time_plot = plot!(x_values, ess_time_mean_arr, ribbon=(ess_time_std_arr,ess_time_std_arr), label="Hamilton MC")
     end
 
+
     
-    return ess_time_plots
+    name = string("ess_time")
+    extension = string(".png")
+    full = string(location, name, extension)
+    savefig(ess_time_plot, full)
+    
+    return ess_time_plot
 end
 
 
-function plot_ks_p(p_states, test_measures_states, runs)
+function plot_ks_p(p_states, runs)
 
     gr(size=(1.3*850, 1.3*800), thickness_scaling = 1.5)
     location = "plots/"
     
     p_states = [p_states[i] for i=eachindex(p_states)]
+    test_measures_states = [load_test_measures(p_states[i], 1:runs) for i=eachindex(p_states)]
+
+
     direction_algos_temp = [string(p_states[i].direction_change_algorithm) for i=eachindex(p_states)]
     direction_algos = unique(direction_algos_temp)
     #println("unique direction algos = ", direction_algos)
@@ -617,7 +669,8 @@ ecmc_p_states_run_003, runs_003 = run_003()
 testmeasures_003 = [load_test_measures(ecmc_p_states_run_003[i], 1:runs_003) for i=eachindex(ecmc_p_states_run_003)]
 best_jbr_for_reflect_plot = plot_best_jbr(ecmc_p_states_run_003, testmeasures_003, runs_003)
 best_jbr_for_reflect_plot[1]
-for jbr in 1:8
+best_jbr_for_reflect_plot[2]
+for jbr in 1:16
     println("ess mean = ", mean([mean(testmeasures_003[jbr][i].effective_sample_size) for i=1:10]))
     println("ess std = ", std([mean(testmeasures_003[jbr][i].effective_sample_size) for i=1:10]))
     println("time mean = ", mean([testmeasures_003[jbr][i].sample_time for i=1:10]))
@@ -626,6 +679,30 @@ for jbr in 1:8
 end # Die mean ESS sind fast immer gleich und die schwankungen auch nicht so groß, aber die sample time ist erheblich unterschiedlich und schwankt zwischen den runs (für das selbe jbr) sehr. und da die sample time im nenner steht macht das einen erheblichen unterschied aus
 
 
+#---PERFORMANCE TEST PLOTS------
+ecmc_p_states_run_004, runs_004 = run_004()
+ecmc_p_states_run_005, runs_005 = run_005()
+both_p_states = state_fusion(ecmc_p_states_run_004, ecmc_p_states_run_005)
+mcmc_p_states_run_006, runs_006 = run_006()
+hmc_p_states_run_007, runs_007 = run_007()
+
+
+ess_plot = plot_ess_time(both_p_states, mcmc_p_states_run_006, hmc_p_states_run_007, 10)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+#-----------------------------
 eps = ecmc_p_states_run_001[14]
 t_m = load_test_measures(eps, 1:runs_001);
 #--------running stuff------------
@@ -637,12 +714,6 @@ png("Finding_best_dir_algo_2")
 t_acc_plots = plot_best_target_acc(ecmc_p_states_run_002, testmeasures_002, runs_002)
 
 t_acc_plots[4]
-
-
-
-
-
-
 
 
 #---------------------------------------------
