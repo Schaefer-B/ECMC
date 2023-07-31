@@ -15,7 +15,7 @@ using HypothesisTests
 include("../test_distributions.jl")
 
 #-----------------
-dims = 16
+dims = 128
 likelihood, prior = mvnormal(dims)
 likelihood, prior = funnel(dims)
 posterior = PosteriorMeasure(likelihood, prior);
@@ -68,7 +68,7 @@ function idontwannacalliteverytime(title = "Test", everyaxis=false)
     plot!(new_acc_C, lw=2, label="Current acceptance rate", ylabel="Acc. rate")
     target_acc = algorithm.tuning.tuning_convergence_check.target_acc
     plot!([target_acc], st=:hline, lw=2, label="Target acceptance rate")
-    #plot!(ylims=(0.6, 1.))
+    plot!(ylims=(0., 1.5))
     if everyaxis == true
         plot!(xlabel="Steps")
     end
@@ -122,12 +122,12 @@ ENV["JULIA_DEBUG"] = "BAT"
 
 algorithm = ECMCSampler(
     trafo = PriorToUniform(),
-    nsamples= 1*10^5,
+    nsamples= 2,
     nburnin = 0,
-    nchains = 2,
+    nchains = 20,
     chain_length=5, 
     remaining_jumps_before_refresh=100,
-    step_amplitude = 0.5,
+    step_amplitude = 1.,
     factorized = false,
     step_var=0.05,
     variation_type = NoVariation(),
@@ -145,10 +145,21 @@ tuning_state = ecmcsample.ecmc_tuning_state[1] # tuning state for chain 1
 state = ecmcsample.ecmc_state[1]
 
 tuner_plot = idontwannacalliteverytime("", true)
+dede = 0.05006 # automatic
+dada = 0.05366 # fixed
+savefig(tuner_plot, "04_google_one_alpha2.png")
 
-savefig(tuner_plot, "04_google_one_alpha.png")
-
-state.n_acc/state.n_steps
+acc = []
+for i in eachindex(ecmcsample.ecmc_state)
+    state = ecmcsample.ecmc_state[i]
+    push!(acc, state.n_acc/state.n_steps)
+end
+mean(acc)
+std(acc)
+1-0.8023/0.8
++- 0.0003
+1-0.7884/0.8
++- 0.0003
 #--------------------------
 
 plot(samples, nbins=100)
@@ -271,28 +282,114 @@ tuning_state.tuned_delta
 
 
 
+using AdvancedHMC
+include("../test_distributions.jl")
+
+#-----------------
+dims = 64
+likelihood, prior = mvnormal(dims)
+likelihood, prior = funnel(dims)
+likelihood, prior = multimodal(dims)
+likelihood, prior = bimodal(dims)
+posterior = PosteriorMeasure(likelihood, prior);
+
+
+
+hmc_algo = MCMCSampling(
+    mcalg = HamiltonianMC(),
+    nsteps =  10^4, 
+    nchains = 4,
+)
+
+#set_batcontext(ad = ADModule(:ForwardDiff))
+
+#hmc_sample = bat_sample(posterior, hmc_algo)
+hmc_time = @elapsed(hmc_sample = bat_sample(posterior, MCMCSampling(mcalg=HamiltonianMC(), nsteps = 2*10^5, nchains=2, burnin = MCMCMultiCycleBurnin(nsteps_per_cycle = 1*10^5, max_ncycles = 100))))
+hmc_tuning_time = @elapsed(hmc_temp = bat_sample(posterior, MCMCSampling(mcalg=HamiltonianMC(), nsteps = 2, nchains=2, burnin = MCMCMultiCycleBurnin(nsteps_per_cycle = 1*10^5, max_ncycles = 100))))
+hmc_samples = hmc_sample.result
+
+hmc_ess = bat_eff_sample_size(hmc_samples).result.a
+hmc_ess_time = mean(hmc_ess)/(hmc_time - hmc_tuning_time)
+hmc_ess_time = mean(hmc_ess)/(hmc_time)
+
+h_plot = plot(hmc_samples)
+e_plot = plot(ecmc_samples)
+m_plot = plot(mcmc_samples)
+
+savefig(e_plot,"multimodal_ecmc_0.5_exponential.png")
+savefig(m_plot,"multimodal_mcmc_10000_samplesbtw.png")
+
+mean(abs.(mean(hmc_samples.v.a)))
+mean(abs.(mean(ecmc_samples.v.a)))
+mean(abs.(mean(mcmc_samples.v.a)))
+
 algorithm = ECMCSampler(
     trafo = PriorToUniform(),
-    nsamples= 1*10^6,
+    nsamples= 2*10^5,
     nburnin = 0,
-    nchains = 4,
+    nchains = 2,
     chain_length=5, 
-    remaining_jumps_before_refresh=100,
+    remaining_jumps_before_refresh=200,
+    step_amplitude = 0.1,
+    factorized = false,
+    step_var=0.05,
+    #step_var=1.5,
+    variation_type = NormalVariation(),
+    direction_change = StochasticReflectDirection(),
+    tuning = MFPSTuner(target_acc=0.8, adaption_scheme=GoogleAdaption(automatic_adjusting=true), max_n_steps = 2*10^4, starting_alpha=0.1),
+);
+algorithm2 = ECMCSampler(
+    trafo = PriorToUniform(),
+    nsamples= 2,
+    nburnin = 0,
+    nchains = 1,
+    chain_length=5, 
+    remaining_jumps_before_refresh=200,
     step_amplitude = 0.1,
     factorized = false,
     step_var=0.05,
     variation_type = NormalVariation(),
-    direction_change = ReflectDirection(),
+    direction_change = StochasticReflectDirection(),
     tuning = MFPSTuner(target_acc=0.5, adaption_scheme=GoogleAdaption(automatic_adjusting=true), max_n_steps = 2*10^4, starting_alpha=0.1),
 );
 
-
 ecmc_time = @elapsed(ecmc_sample = bat_sample(posterior, algorithm))
+ecmc_tuning_time = @elapsed(ecmc_temp = bat_sample(posterior, algorithm2))
 #mcmc_sample = bat_sample(posterior, MCMCSampling(mcalg = MetropolisHastings(), nsteps = 2*10^5, nchains = 4))
 ecmc_samples = ecmc_sample.result
 
 ecmc_ess = bat_eff_sample_size(ecmc_samples).result.a
-ecmc_ess_time = mean(ecmc_ess)/ecmc_time
+ecmc_ess_time = mean(ecmc_ess)/(ecmc_time - ecmc_tuning_time)
+ecmc_ess_time = mean(ecmc_ess)/(ecmc_time)
+
+
+
+mcmc_nsamples = 2*10^5
+nburninsteps_per_cycle = 1*10^5
+nburnin_max_cycles = 100
+mcmc_nchains = 2
+mcmc_sampler = MCMCSampling(
+        mcalg = MetropolisHastings(),
+        nsteps = mcmc_nsamples, 
+        nchains = mcmc_nchains,
+        burnin = MCMCMultiCycleBurnin(nsteps_per_cycle = nburninsteps_per_cycle, max_ncycles = nburnin_max_cycles),
+        #convergence = BrooksGelmanConvergence(),
+)
+#comparison to mcmc
+mcmc_time = @elapsed(mcmc_sample = bat_sample(posterior, mcmc_sampler))
+mcmc_samples = mcmc_sample.result
+mcmc_tuning_time = @elapsed(mcmc_temp = bat_sample(posterior, MCMCSampling(
+    mcalg = MetropolisHastings(),
+    nsteps = 2, 
+    nchains = mcmc_nchains,
+    burnin = MCMCMultiCycleBurnin(nsteps_per_cycle = nburninsteps_per_cycle, max_ncycles = nburnin_max_cycles),
+    #convergence = BrooksGelmanConvergence(),
+)))
+#mcmc_sample = bat_sample(posterior, MCMCSampling(mcalg = MetropolisHastings(), nsteps = 2*10^5, nchains = 4))
+
+
+mcmc_ess = bat_eff_sample_size(mcmc_samples).result.a
+mcmc_ess_time = mean(mcmc_ess)/(mcmc_time)# - mcmc_tuning_time)
 
 
 

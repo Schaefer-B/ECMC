@@ -13,6 +13,7 @@ using LaTeXStrings
 using TranscodingStreams
 using CodecZlib
 using AdvancedHMC
+using AutoDiffOperators
 
 #using HypothesisTests
 
@@ -134,6 +135,8 @@ end
     target_distribution
     dimension::Int64
     nsamples::Int64
+    nburninsteps_per_cycle::Int64
+    nburnin_max_cycles::Int64
     nchains::Int64
 
     samples
@@ -144,6 +147,8 @@ end
     target_distribution
     dimension::Int64
     nsamples::Int64
+    nburninsteps_per_cycle::Int64
+    nburnin_max_cycles::Int64
     nchains::Int64
 
     samples
@@ -242,6 +247,7 @@ function create_algorithm(p_state::HMCPerformanceState)
         mcalg = HamiltonianMC(),
         nsteps = p_state.nsamples, 
         nchains = p_state.nchains,
+        burnin = MCMCMultiCycleBurnin(nsteps_per_cycle = p_state.nburninsteps_per_cycle, max_ncycles = p_state.nburnin_max_cycles),
        
     )
 
@@ -249,6 +255,7 @@ function create_algorithm(p_state::HMCPerformanceState)
         mcalg = HamiltonianMC(),
         nsteps = 2, 
         nchains = p_state.nchains,
+        burnin = MCMCMultiCycleBurnin(nsteps_per_cycle = p_state.nburninsteps_per_cycle, max_ncycles = p_state.nburnin_max_cycles),
         
     )
     return algorithm, first
@@ -488,6 +495,8 @@ function create_result_state(p_state::HMCPerformanceState)
     target_distribution = string(p_state.target_distribution),
     dimension = p_state.dimension,
     nsamples = p_state.nsamples,
+    nburninsteps_per_cycle = p_state.nburninsteps_per_cycle,
+    nburnin_max_cycles = p_state.nburnin_max_cycles,
     nchains = p_state.nchains,
 
     samples = p_state.samples,

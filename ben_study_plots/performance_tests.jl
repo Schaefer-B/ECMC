@@ -13,6 +13,7 @@ using LaTeXStrings
 using TranscodingStreams
 using CodecZlib
 using AdvancedHMC
+using AutoDiffOperators
 
 #using HypothesisTests
 
@@ -135,6 +136,8 @@ end
     target_distribution
     dimension::Int64
     nsamples::Int64
+    nburninsteps_per_cycle::Int64
+    nburnin_max_cycles::Int64
     nchains::Int64
 
     samples
@@ -145,6 +148,8 @@ end
     target_distribution
     dimension::Int64
     nsamples::Int64
+    nburninsteps_per_cycle::Int64
+    nburnin_max_cycles::Int64
     nchains::Int64
 
     samples
@@ -243,6 +248,7 @@ function create_algorithm(p_state::HMCPerformanceState)
         mcalg = HamiltonianMC(),
         nsteps = p_state.nsamples, 
         nchains = p_state.nchains,
+        burnin = MCMCMultiCycleBurnin(nsteps_per_cycle = p_state.nburninsteps_per_cycle, max_ncycles = p_state.nburnin_max_cycles),
        
     )
 
@@ -250,10 +256,12 @@ function create_algorithm(p_state::HMCPerformanceState)
         mcalg = HamiltonianMC(),
         nsteps = 2, 
         nchains = p_state.nchains,
+        burnin = MCMCMultiCycleBurnin(nsteps_per_cycle = p_state.nburninsteps_per_cycle, max_ncycles = p_state.nburnin_max_cycles),
         
     )
     return algorithm, first
 end
+
 
 #---------------------------------
 
@@ -294,6 +302,9 @@ end
 
 
 function run_sampling!(posterior, algorithm, p_state::HMCPerformanceState)
+    
+    set_batcontext(ad = ADModule(:ForwardDiff))
+    
     sample_time = @elapsed(sample = bat_sample(posterior, algorithm))
     samples = sample.result
 
@@ -304,7 +315,6 @@ function run_sampling!(posterior, algorithm, p_state::HMCPerformanceState)
 
     return sample_time
 end
-
 
 
 #---------------------------------

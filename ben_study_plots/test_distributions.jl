@@ -67,3 +67,55 @@ function mixture(dimension)
 
     return likelihood, prior
 end
+
+
+function multimodal(dimension)
+    D = dimension # not needed tho
+    likelihood = logfuncdensity(params -> begin
+
+        r1 = logpdf.(
+        MixtureModel(Normal[
+        Normal(-1.0, 0.05),
+        #Normal(0.0, 1.),
+        Normal(1.0, 0.05)], [0.8, 0.2]
+        ), params.a[1])
+
+        r2 = logpdf.(
+        MixtureModel(Normal[
+        Normal(-1, 0.05),
+        Normal(1., 0.05)], [0.2, 0.8]
+        ), params.a[2])
+
+        #r3 = logpdf.(Normal(2.0, 1.5), params.a[3])
+
+        return r1+r2#+r3
+    end)
+
+    prior = BAT.NamedTupleDist(
+        #a = [-40..40, -40.0..40.0]
+        a = [-10..10, -10.0..10.0]
+    )
+
+    return likelihood, prior
+end
+
+
+
+function bimodal(dimension)
+    D = dimension # not needed tho
+    likelihood = logfuncdensity(params -> begin
+
+        r1 = logpdf.(MixtureModel([Normal(-50, 1.),Normal(20, 0.5)], [0.8, 0.2]), params.a[1])
+
+        #r2 = logpdf.(Normal(0, 1.), params.a[2])
+
+        return r1 #+ r2
+    end)
+
+    prior = BAT.NamedTupleDist(
+        #a = [-40..40, -40.0..40.0]
+        a = [-40..40]
+    )
+
+    return likelihood, prior
+end

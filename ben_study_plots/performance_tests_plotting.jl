@@ -6,16 +6,14 @@ include("performance_tests_all_runs_listed.jl")
 
 
 
-function state_fusion(a_states, b_states)
-    both_states = []
-    for i in eachindex(a_states)
-        push!(both_states, a_states[i])
+function state_fusion(multi_states_arr)
+    fused_states = []
+    for states_arr in multi_states_arr
+        for i in eachindex(states_arr)
+            push!(fused_states, states_arr[i])
+        end
     end
-    for i in eachindex(b_states)
-        push!(both_states, b_states[i])
-    end
-
-    return both_states
+    return fused_states
 end
 
 #----------------------loading functions-----------------------------------
@@ -385,7 +383,7 @@ function plot_ess_time(p_states, mcmc_states, hmc_states, runs)
     end
 
 
-    
+    plot!(yaxis=:log)
     name = string("ess_time")
     extension = string(".png")
     full = string(location, name, extension)
@@ -395,60 +393,267 @@ function plot_ess_time(p_states, mcmc_states, hmc_states, runs)
 end
 
 
-function plot_ks_p(p_states, runs)
+function plot_mini_ess_time(p_states, mcmc_states, hmc_states, runs, min_dim, max_dim, tuner_time_subtracted)
 
     gr(size=(1.3*850, 1.3*800), thickness_scaling = 1.5)
     location = "plots/"
+
+    ess_time_plot = plot(xlabel="Dimension", ylabel="ESS/s")
     
-    p_states = [p_states[i] for i=eachindex(p_states)]
-    test_measures_states = [load_test_measures(p_states[i], 1:runs) for i=eachindex(p_states)]
+
+    if p_states != []
+        p_states = [p_states[i] for i=eachindex(p_states)]
+        ecmc_t_measures = [load_test_measures(p_states[i], 1:runs) for i=eachindex(p_states)]
+
+        direction_algos_temp = [string(p_states[i].direction_change_algorithm) for i=eachindex(p_states)]
+        direction_algos = unique(direction_algos_temp)
+
+        for dir_algo in direction_algos
+            one_dir_indices = findall(x -> string(x.direction_change_algorithm) == dir_algo ? true : false, p_states)
+
+            ess_time_mean_arr = []
+            ess_time_std_arr = []
+            
+            for dim_index in one_dir_indices # for loop over dimensions
+                
+                if p_states[dim_index].dimension >= min_dim && p_states[dim_index].dimension <= max_dim
+
+                    test_measures = ecmc_t_measures[dim_index]
+
+                    if tuner_time_subtracted == true
+                        ess_time_runs = [mean(test_measures[i].effective_sample_size)/(test_measures[i].sample_time - test_measures[i].tuning_time) for i=eachindex(test_measures)]
+                    else
+                        ess_time_runs = [mean(test_measures[i].effective_sample_size)/(test_measures[i].sample_time) for i=eachindex(test_measures)]
+                    end
+                    ess_time_mean = mean(ess_time_runs)
+                    ess_time_std = std(ess_time_runs)
+
+                    push!(ess_time_mean_arr, ess_time_mean)
+                    push!(ess_time_std_arr, ess_time_std)
+
+                end
+
+            end
+
+            x_values = []
+            for i in one_dir_indices
+                if p_states[i].dimension >= min_dim && p_states[i].dimension <= max_dim
+                push!(x_values, p_states[i].dimension)
+                end
+            end
+
+            ess_time_plot = plot!(x_values, ess_time_mean_arr, ribbon=(ess_time_std_arr,ess_time_std_arr), label=dir_algo)
+        end
+    end
 
 
-    direction_algos_temp = [string(p_states[i].direction_change_algorithm) for i=eachindex(p_states)]
-    direction_algos = unique(direction_algos_temp)
-    #println("unique direction algos = ", direction_algos)
+    if mcmc_states != []
+        mcmc_states = [mcmc_states[i] for i=eachindex(mcmc_states)]
+        mcmc_t_measures = [load_test_measures(mcmc_states[i], 1:runs) for i=eachindex(mcmc_states)]
+
+        ess_time_mean_arr = []
+        ess_time_std_arr = []
+        
+        for dim_index in eachindex(mcmc_states)
+
+            if p_states[dim_index].dimension >= min_dim && p_states[dim_index].dimension <= max_dim
+            
+                test_measures = mcmc_t_measures[dim_index]
+
+                if tuner_time_subtracted == true
+                    ess_time_runs = [mean(test_measures[i].effective_sample_size)/(test_measures[i].sample_time - test_measures[i].tuning_time) for i=eachindex(test_measures)]
+                else
+                    ess_time_runs = [mean(test_measures[i].effective_sample_size)/(test_measures[i].sample_time) for i=eachindex(test_measures)]
+                end
+                ess_time_mean = mean(ess_time_runs)
+                ess_time_std = std(ess_time_runs)
+
+                push!(ess_time_mean_arr, ess_time_mean)
+                push!(ess_time_std_arr, ess_time_std)
+            end
+
+        end
+
+        x_values = []
+        for i in eachindex(mcmc_states)
+            if mcmc_states[i].dimension >= min_dim && mcmc_states[i].dimension <= max_dim
+            push!(x_values, mcmc_states[i].dimension)
+            end
+        end
+
+        ess_time_plot = plot!(x_values, ess_time_mean_arr, ribbon=(ess_time_std_arr,ess_time_std_arr), label="Metropolis-Hastings")
+    end
+
+
+    if hmc_states != []
+        hmc_states = [hmc_states[i] for i=eachindex(hmc_states)]
+        hmc_t_measures = [load_test_measures(hmc_states[i], 1:runs) for i=eachindex(hmc_states)]
+
+        ess_time_mean_arr = []
+        ess_time_std_arr = []
+        
+        for dim_index in eachindex(hmc_states)
+
+            if p_states[dim_index].dimension >= min_dim && p_states[dim_index].dimension <= max_dim
+
+                test_measures = hmc_t_measures[dim_index]
+                
+                if tuner_time_subtracted == true
+                ess_time_runs = [mean(test_measures[i].effective_sample_size)/(test_measures[i].sample_time - test_measures[i].tuning_time) for i=eachindex(test_measures)]
+                else
+                ess_time_runs = [mean(test_measures[i].effective_sample_size)/(test_measures[i].sample_time) for i=eachindex(test_measures)]
+                end
+                ess_time_mean = mean(ess_time_runs)
+                ess_time_std = std(ess_time_runs)
+
+                push!(ess_time_mean_arr, ess_time_mean)
+                push!(ess_time_std_arr, ess_time_std)
+            end
+
+        end
+
+        x_values = []
+        for i in eachindex(hmc_states)
+            if hmc_states[i].dimension >= min_dim && hmc_states[i].dimension <= max_dim
+            push!(x_values, hmc_states[i].dimension)
+            end
+        end
+
+        ess_time_plot = plot!(x_values, ess_time_mean_arr, ribbon=(ess_time_std_arr,ess_time_std_arr), label="Hamilton MC")
+    end
+
+
+    if tuner_time_subtracted == true
+        name = string("mini_ess_time_tunertimesubstracted")
+    else
+        name = string("mini_ess_time_fullsampletime")
+    end
+    extension = string(".png")
+    full = string(location, name, extension)
+    #savefig(ess_time_plot, full)
+    
+    return ess_time_plot
+end
+
+
+
+function plot_ks_p(p_states, mcmc_states, hmc_states, runs, max_points)
+
+    gr(size=(1.3*850, 1.3*800), thickness_scaling = 1.5)
+    #location = "plots/"
+
+    spots_maximum = max_points
 
     ksp_plots = []
+    
 
-    for dir_algo in direction_algos
-        
-        one_dir_indices = findall(x -> string(x.direction_change_algorithm) == dir_algo ? true : false, p_states)
-        #p_algo_states = p_states(one_dir_indices)
+    if p_states != []
+        p_states = [p_states[i] for i=eachindex(p_states)]
+        ecmc_t_measures = [load_test_measures(p_states[i], 1:runs) for i=eachindex(p_states)]
 
+        direction_algos_temp = [string(p_states[i].direction_change_algorithm) for i=eachindex(p_states)]
+        direction_algos = unique(direction_algos_temp)
 
-        ksp_arr = []
-        
-        for dim_index in one_dir_indices # for loop over dimensions
-            
+        for dir_algo in direction_algos
+            one_dir_indices = findall(x -> string(x.direction_change_algorithm) == dir_algo ? true : false, p_states)
 
-            test_measures = test_measures_states[dim_index]
-            
-            ksp_values = []
-            for i in eachindex(test_measures)
-                ksp_values = vcat(ksp_values, test_measures[i].ks_p_values)
+            ksp_per_dim = []
+            for dim_index in one_dir_indices # for loop over dimensions
+                
+                test_measures = ecmc_t_measures[dim_index]
+
+                ksp_one_dim = []
+                for tm in eachindex(test_measures)
+                    for kp in eachindex(test_measures[tm].ks_p_values)
+                        ksp = test_measures[tm].ks_p_values[kp]
+                        push!(ksp_one_dim, ksp)
+                    end
+                end
+
+                push!(ksp_per_dim, ksp_one_dim)
+
             end
-            push!(ksp_arr, ksp_values)
+
+            x_values = [p_states[i].dimension for i=one_dir_indices]
+
+            ksp_plot = plot(xlabel="Dimension", ylabel="Kolmogorov-Smirnov test p-value", legend=false)
+            for x in eachindex(x_values)
+                r = min(spots_maximum, length(ksp_per_dim[x]))
+                x_vals = fill(x_values[x], r)
+                ksp_plot = scatter!(x_vals, ksp_per_dim[x], color=:blue)
+            end
+            push!(ksp_plots, ksp_plot)
+        end
+    end
 
 
+    if mcmc_states != []
+        mcmc_states = [mcmc_states[i] for i=eachindex(mcmc_states)]
+        mcmc_t_measures = [load_test_measures(mcmc_states[i], 1:runs) for i=eachindex(mcmc_states)]
+
+        ksp_per_dim = []
+        for dim_index in eachindex(mcmc_states)
+
+            test_measures = mcmc_t_measures[dim_index]
+
+
+            ksp_one_dim = []
+            for tm in eachindex(test_measures)
+                for kp in eachindex(test_measures[tm].ks_p_values)
+                    ksp = test_measures[tm].ks_p_values[kp]
+                    push!(ksp_one_dim, ksp)
+                end
+            end
+
+            push!(ksp_per_dim, ksp_one_dim)
 
         end
 
-        x_values = [p_states[i].dimension for i=one_dir_indices]
+        x_values = [mcmc_states[i].dimension for i=eachindex(mcmc_states)]
 
-        
         ksp_plot = plot(xlabel="Dimension", ylabel="Kolmogorov-Smirnov test p-value", legend=false)
-        for i in eachindex(ksp_arr[1])
-            y_values = [ksp_arr[dim][i] for dim=eachindex(ksp_arr)]
-            ksp_plot = scatter!(x_values, y_values, color=:blue)
+        for x in eachindex(x_values)
+            r = min(spots_maximum, length(ksp_per_dim[x]))
+            x_vals = fill(x_values[x], r)
+            ksp_plot = scatter!(x_vals, ksp_per_dim[x], color=:blue)
         end
-        
-        name = string("ksp_", dir_algo)
-        full = string(location, name)
-        png(full)
-        
-        
         push!(ksp_plots, ksp_plot)
     end
+
+
+    if hmc_states != []
+        hmc_states = [hmc_states[i] for i=eachindex(hmc_states)]
+        hmc_t_measures = [load_test_measures(hmc_states[i], 1:runs) for i=eachindex(hmc_states)]
+
+        
+        ksp_per_dim = []
+        for dim_index in eachindex(hmc_states)
+
+            test_measures = hmc_t_measures[dim_index]
+            
+            ksp_one_dim = []
+            for tm in eachindex(test_measures)
+                for kp in eachindex(test_measures[tm].ks_p_values)
+                    ksp = test_measures[tm].ks_p_values[kp]
+                    push!(ksp_one_dim, ksp)
+                end
+            end
+
+            push!(ksp_per_dim, ksp_one_dim)
+
+        end
+
+        x_values = [hmc_states[i].dimension for i=eachindex(hmc_states)]
+
+        ksp_plot = plot(xlabel="Dimension", ylabel="Kolmogorov-Smirnov test p-value", legend=false)
+        for x in eachindex(x_values)
+            r = min(spots_maximum, length(ksp_per_dim[x]))
+            x_vals = fill(x_values[x], r)
+            ksp_plot = scatter!(x_vals, ksp_per_dim[x], color=:blue)
+        end
+        push!(ksp_plots, ksp_plot)
+    end
+
 
     
     return ksp_plots
@@ -679,15 +884,46 @@ for jbr in 1:16
 end # Die mean ESS sind fast immer gleich und die schwankungen auch nicht so groß, aber die sample time ist erheblich unterschiedlich und schwankt zwischen den runs (für das selbe jbr) sehr. und da die sample time im nenner steht macht das einen erheblichen unterschied aus
 
 
+
+
 #---PERFORMANCE TEST PLOTS------
-ecmc_p_states_run_004, runs_004 = run_004()
-ecmc_p_states_run_005, runs_005 = run_005()
-both_p_states = state_fusion(ecmc_p_states_run_004, ecmc_p_states_run_005)
-mcmc_p_states_run_006, runs_006 = run_006()
-hmc_p_states_run_007, runs_007 = run_007()
+reflect_performance_states, runs = ecmc_reflect_performance()
+stochasticreflect_performance_states, runs = ecmc_stochasticreflect_performance()
+refresh_performance_states, runs = ecmc_refresh_performance()
+all_ecmc_states = state_fusion([reflect_performance_states, stochasticreflect_performance_states, refresh_performance_states])
+mcmc_performance_states, runs = mcmc_performance()
+hmc_performance_states, runs = hmc_performance()
+
+#ess_plot = plot_ess_time(both_p_states, mcmc_p_states_run_006, [], 10)
+
+ess_plot = plot_ess_time(all_ecmc_states, mcmc_performance_states, hmc_performance_states, 10)
+ess_plot
 
 
-ess_plot = plot_ess_time(both_p_states, mcmc_p_states_run_006, hmc_p_states_run_007, 10)
+min_dim = 64
+max_dim = 200
+tuner_time_subtracted = true
+mini_ess_plot = plot_mini_ess_time(all_ecmc_states, mcmc_performance_states, hmc_performance_states, 10, min_dim, max_dim, tuner_time_subtracted)
+mini_ess_plot_fullsampletime = plot_mini_ess_time(all_ecmc_states, mcmc_performance_states, hmc_performance_states, 10, min_dim, max_dim, false)
+
+#It seems like the ReflectDirection() algorithm is performing better than the HMC algorithm for high dimensions.
+#But looking at the plot showing the p-values for the Kolmogorov-Smirnov plot, it is clearly shown, that the ReflectDirection() is performing worse.
+#That means the ESS got overestimated.
+
+
+max_points = 100
+ks_plots = plot_ks_p(all_ecmc_states, mcmc_performance_states, hmc_performance_states, 10, max_points)
+ks_plots[1]
+
+
+
+
+
+refresh_test, runs = ecmc_refresh_targetacc()
+t_m = [load_test_measures(refresh_test[i], 1:runs) for i=eachindex(refresh_test)]
+refresh_target_plot = plot_best_target_acc(refresh_test, t_m, runs)
+refresh_target_plot[1]
+savefig(refresh_target_plot[1], "plots/best_target_acc_refresh_direction.png")
 
 
 
@@ -696,10 +932,27 @@ ess_plot = plot_ess_time(both_p_states, mcmc_p_states_run_006, hmc_p_states_run_
 
 
 
+#----------plotting ks_p_values: -------------
 
 
+testmeasures_004 = [load_test_measures(ecmc_p_states_run_004[i], 1:runs_004) for i=eachindex(ecmc_p_states_run_004)]
+testmeasures_005 = [load_test_measures(ecmc_p_states_run_005[i], 1:runs_005) for i=eachindex(ecmc_p_states_run_005)]
+dimension = 7
+kssk1 = []
+kssk2 = []
+for k = 1:10
+    for i in 1:2^(dimension-1)
+        k1 = testmeasures_004[dimension][k].ks_p_values[i]
+        push!(kssk1, k1)
+        k2 = testmeasures_005[dimension][k].ks_p_values[i]
+        push!(kssk2, k2)
+    end
+end
+kssk1
+plot(kssk1, st=:hist, bins=0:0.02:1)
+plot(kssk2, st=:hist, bins=0:0.02:1)
 
-
+#----------testing stuff--------------
 
 
 #-----------------------------
@@ -715,9 +968,6 @@ t_acc_plots = plot_best_target_acc(ecmc_p_states_run_002, testmeasures_002, runs
 
 t_acc_plots[4]
 
-
-#---------------------------------------------
-#----------testing stuff--------------
 
 t_m[1]
 
