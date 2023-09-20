@@ -153,10 +153,7 @@ See also [`ECMCState`](@ref).
 
     γ::Float64 = 0 # for google tuning
     step_acc::Bool = 0 # for google tuning # was this step accepted? y : n
-    α = 0.1 # for new google tuning
-    α_acc_err = 1 # for new google tuning
-
-    params::Vector{Float64} = [] # for optimizing the naive adaption (and could be used for optimizing α in google tuning etc)
+    α = 0.1 # for google tuning
     
 end
 export ECMCTunerState
@@ -188,16 +185,8 @@ function ECMCTunerState(density::AbstractMeasureOrDensity, algorithm::ECMCSample
         remaining_jumps_before_refresh = algorithm.remaining_jumps_before_refresh, 
         delta_arr = [delta, ],
         step_var = algorithm.step_var,
-        α = algorithm.tuning == ECMCNoTuner() ? 0 : algorithm.tuning.starting_alpha,
-        params = [0.98,
-        0.207210542888343,
-        0.0732514723260891,
-        0.4934509024569294,
-        17.587673168668637,
-        2.069505973296211,
-        0.6136869940758715,
-        163.53188824455017] # TO BE REMOVED
-        )  for i in 1:algorithm.nchains]
+        α = algorithm.tuning == ECMCNoTuner() ? 0 : algorithm.tuning.starting_alpha)  for i in 1:algorithm.nchains]
+        
 
     return ecmc_tuner_states
 end 

@@ -1,10 +1,8 @@
 using Test
 using BAT
 using DensityInterface
-using InverseFunctions
 using Distributions
 using Random
-using ForwardDiff
 using Plots
 ENV["JULIA_DEBUG"] = "BAT"
 
@@ -359,6 +357,40 @@ end
 
 
 
+
+#------------------tuning tests---------------------
+
+tuning_algorithms = [
+    ECMCNoTuner(), 
+    MFPSTuner(target_acc=0.3, adaption_scheme=GoogleAdaption(automatic_adjusting=false), max_n_steps = 3*10^4, starting_alpha=0.1), 
+    MFPSTuner(target_acc=0.3, adaption_scheme=GoogleAdaption(automatic_adjusting=true), max_n_steps = 3*10^4, starting_alpha=0.1)
+]
+
+algorithms = [
+    ECMCSampler(
+        trafo = PriorToUniform(),
+        nsamples = 4,
+        nburnin = 0,
+        nchains = 1,
+        chain_length = 5,
+        remaining_jumps_before_refresh=50,
+        step_amplitude = 1.,
+        step_var = 0.1,
+        variation_type = NoVariation(),
+        direction_change = RefreshDirection(),
+        tuning = MFPSTuner(target_acc=0.3, adaption_scheme=GoogleAdaption(automatic_adjusting=false), max_n_steps = 3*10^4, starting_alpha=0.1),
+        factorized = false
+    ) for tuning_algo in tuning_algorithms
+]
+
+resulting_deltas = Array{Float64}(undef, length(tuning_algorithms))
+for i in eachindex(tuning_algorithms)
+
+    sample = bat_sample(posterior, algorithms[i])
+    tuning_state = sample.ecmc_tuning_state[1]
+    resulting_deltas[i] = tuning_state.tuned_delta
+
+end
 
 
 

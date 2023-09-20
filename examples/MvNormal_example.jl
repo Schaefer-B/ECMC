@@ -1,10 +1,9 @@
-using Test
 using BAT
 using DensityInterface
-using InverseFunctions
+#using InverseFunctions
 using Distributions
 using Random
-using ForwardDiff
+#using ForwardDiff
 using Plots
 
 include("../ecmc.jl")
@@ -32,17 +31,18 @@ logdensityof(posterior, rand(prior))
 
 algorithm = ECMCSampler(
     trafo = PriorToUniform(),
-    nsamples=10^4,
-    nburnin = 10^2,
+    nsamples= 5*10^5,
+    nburnin = 0,
     nchains = 2,
-    chain_length=5, 
-    remaining_jumps_before_refresh=50,
-    step_amplitude=0.04,
+    chain_length=10,
+    remaining_jumps_before_refresh=100,
+    step_amplitude = 1.,
     factorized = false,
-    #step_var=1.5*0.04,
+    step_var=0.05,
+    variation_type = UniformVariation(),
     direction_change = RefreshDirection(),
-    tuning = MFPSTuner(),
-)
+    tuning = MFPSTuner(target_acc=0.3, adaption_scheme=GoogleAdaption(automatic_adjusting=true), max_n_steps = 3*10^4, starting_alpha=0.1),
+);
 
 
 sampling_result = bat_sample(posterior, algorithm)
