@@ -248,8 +248,7 @@ end
 
 
 #one algorithm for each change direction algorithm
-direction_change_algorithms = [ReverseDirection(), RefreshDirection(), ReflectDirection(), StochasticReflectDirection()]
-#direction_change_algorithms = [ReverseDirection(), RefreshDirection(), ReflectDirection()]
+direction_change_algorithms = [ReverseDirection(), RefreshDirection(), ReflectDirection(), StochasticReflectDirection(), GradientRefreshDirection()]
 
 algorithms = [
     ECMCSampler(
@@ -309,13 +308,13 @@ end
 @test isapprox(run_ecmc_results[RefreshDirection()].v[1].a, [-0.54, -4.104, -7.667999999999999, -11.232, -14.796000000000001, -18.36, -21.924, -25.488, -29.052, -32.616, -36.18, -39.744, -43.308, -46.872, -50.436, -54.0], atol=1e-15)
 @test isapprox(run_ecmc_results[ReflectDirection()].v[1].a, [-0.54, -4.104, -7.667999999999999, -11.232, -14.796000000000001, -18.36, -21.924, -25.488, -29.052, -32.616, -36.18, -39.744, -43.308, -46.872, -50.436, -54.0], atol=1e-15)
 @test isapprox(run_ecmc_results[StochasticReflectDirection()].v[1].a, [-0.54, -4.104, -7.667999999999999, -11.232, -14.796000000000001, -18.36, -21.924, -25.488, -29.052, -32.616, -36.18, -39.744, -43.308, -46.872, -50.436, -54.0], atol=1e-15)
+@test isapprox(run_ecmc_results[GradientRefreshDirection()].v[1].a, [-0.54, -4.104, -7.667999999999999, -11.232, -14.796000000000001, -18.36, -21.924, -25.488, -29.052, -32.616, -36.18, -39.744, -43.308, -46.872, -50.436, -54.0], atol=1e-15)
 
 @test isapprox(run_ecmc_results[ReverseDirection()].v[100].a, [-0.01875905563770197, -0.13481600712882802, 1.9263659301473322, 0.12372814499449802, 2.13832820561122, 3.3218469019043155, -1.3170374341169975, -1.2920113792038705, 0.8867666721301006, 1.944403627638799, 1.2859929052670012, 1.516161230928077, 2.12242276073399, 1.0762365033922663, 2.640575758119745, 2.6281928296924164], atol=1e-15)
 @test isapprox(run_ecmc_results[RefreshDirection()].v[100].a, [0.07534389424352739, 0.5084252992325906, 0.7626410228943765, -1.995879176909492, 2.6153794469306355, 0.9946184856324258, 0.3428133555360695, -3.7077441775231037, 5.281683300305765, -1.0458899415631535, -0.7926682541016845, 1.3559750594345559, -3.6088106578072257, 4.008609129306578, -1.9668755038233243, -2.6815303239411534], atol=1e-15)
 @test isapprox(run_ecmc_results[ReflectDirection()].v[100].a, [0.0238002834318759, 0.548652931082767, -1.504017603143275, -1.2962734739743418, 3.5419781302526836, -4.6405802720772815, -3.068395300202617, -7.43569926904571, -4.404596620480508, 0.44901806765918906, -11.524435189793106, -4.624163844472164, 0.06602032166976102, -15.891062065479893, -10.776390274323184, 4.393433043919558], atol=1e-15)
 @test isapprox(run_ecmc_results[StochasticReflectDirection()].v[100].a, [-0.006102245871822287, -0.08657770542281007, 2.8400220765621995, -1.4868965424502552, -0.8444150972582349, 0.3844184884983335, 0.2364111577358763, 10.595427500334829, 1.5197365593320527, -4.455083633325948, 0.7984591925193243, 6.5312962858262225, -17.8440013620808, 4.5940554218472585, -4.8361453406851425, -2.3829548173632418], atol=1e-15)
-
-
+@test isapprox(run_ecmc_results[GradientRefreshDirection()].v[100].a, [-0.11508619746992477, 0.4808046113727267, -0.2781627645576066, -1.4303260478183422, -0.7179306382352149, -1.4885188109544814, 3.4815287376289703, 6.390528884491822, 0.12780254517154077, 9.345714402164845, 2.3441660890425027, -0.41869793525103915, -6.490683036187576, 8.164537461597448, -0.22370080943293402, -10.462930938200032], atol=1e-15)
 
 
 #---------_ecmc_sample---------
@@ -342,10 +341,10 @@ end
 
 
 @test isapprox(mean(results[ReverseDirection()]).a, fill(0, dimension), atol=2)
-#@test isapprox([1,0.1], [0,0], atol=1)
 @test isapprox(mean(results[RefreshDirection()]).a, fill(0, dimension), atol=1)
 @test isapprox(mean(results[ReflectDirection()]).a, fill(0, dimension), atol=1)
 @test isapprox(mean(results[StochasticReflectDirection()]).a, fill(0, dimension), atol=1)
+@test isapprox(mean(results[GradientRefreshDirection()]).a, fill(0, dimension), atol=1)
 
 
 
@@ -354,11 +353,32 @@ end
 @test isapprox(sqrt.(diag(cov(unshaped.(results[RefreshDirection()])))), collect(range(0.1, 10, dimension)), atol=1)
 @test isapprox(sqrt.(diag(cov(unshaped.(results[ReflectDirection()])))), collect(range(0.1, 10, dimension)), atol=1)
 @test isapprox(sqrt.(diag(cov(unshaped.(results[StochasticReflectDirection()])))), collect(range(0.1, 10, dimension)), atol=1)
+@test isapprox(sqrt.(diag(cov(unshaped.(results[GradientRefreshDirection()])))), collect(range(0.1, 10, dimension)), atol=1)
 
 
 
 
 #------------------tuning tests---------------------
+D = 4
+μ = fill(0.0, D)
+σ = collect(range(1, 10, D))
+truth = rand(MvNormal(μ, σ), Int(1e6))
+
+likelihood = let D = D, μ = μ, σ = σ
+    logfuncdensity(params -> begin
+
+       return logpdf(MvNormal(μ, σ), params.a)
+    end)
+end 
+
+
+prior = BAT.NamedTupleDist(
+    a = Uniform.(-5*σ, 5*σ)
+)
+
+posterior = PosteriorMeasure(likelihood, prior);
+logdensityof(posterior, rand(prior))
+
 
 tuning_algorithms = [
     ECMCNoTuner(), 
@@ -378,21 +398,102 @@ algorithms = [
         step_var = 0.1,
         variation_type = NoVariation(),
         direction_change = RefreshDirection(),
-        tuning = MFPSTuner(target_acc=0.3, adaption_scheme=GoogleAdaption(automatic_adjusting=false), max_n_steps = 3*10^4, starting_alpha=0.1),
+        tuning = tuning_algo,
         factorized = false
     ) for tuning_algo in tuning_algorithms
 ]
 
+
+
+
+#-------adapt_delta tests--------
+density_notrafo = convert(AbstractMeasureOrDensity, posterior)
+
+Random.seed!(2314)
+density_test, trafo = transform_and_unshape(algorithms[2].trafo, density_notrafo)
+tuner_test_state = ECMCTunerState(density_test, algorithms[2])[1]
+for i in 1:10
+    test_delta = adapt_delta(GoogleAdaption(automatic_adjusting=false), tuner_test_state.delta, tuner_test_state, MFPSTuner(target_acc=0.3, adaption_scheme=GoogleAdaption(automatic_adjusting=false), max_n_steps = 3*10^4, starting_alpha=0.1))
+    tuner_test_state.delta = test_delta
+end
+@test isapprox(tuner_test_state.delta, 0.6514390575310557, atol=1e-15)
+@test isapprox(tuner_test_state.α, 0.1, atol=1e-15)
+
+Random.seed!(2314)
+density_test, trafo = transform_and_unshape(algorithms[3].trafo, density_notrafo)
+tuner_test_state = ECMCTunerState(density_test, algorithms[3])[1]
+tuner_test_state.n_steps = 1000
+tuner_test_state.acc_C = fill(0,1000)
+for i in 1:10
+    test_delta = adapt_delta(GoogleAdaption(automatic_adjusting=true), tuner_test_state.delta, tuner_test_state, MFPSTuner(target_acc=0.3, adaption_scheme=GoogleAdaption(automatic_adjusting=true), max_n_steps = 3*10^4, starting_alpha=0.1))
+    tuner_test_state.α
+    tuner_test_state.delta = test_delta
+end
+@test isapprox(tuner_test_state.delta, 0.6356436082486233, atol=1e-15)
+@test isapprox(tuner_test_state.α, 0.11057273553218809, atol=1e-15)
+
+
+
+#-------convergence function tests--------
+Random.seed!(11)
+density_test, trafo = transform_and_unshape(algorithms[3].trafo, density_notrafo)
+tuner_test_state = ECMCTunerState(density_test, algorithms[2])[1]
+tuner_test_state.n_steps = 1e4
+
+tuner_test_state.acc_C = [0]
+for i in 1:tuner_test_state.n_steps-1
+    u = rand(Uniform(0.0, 1.0))
+    if u <= algorithms[2].tuning.target_acc
+        push!(tuner_test_state.acc_C, tuner_test_state.acc_C[end]+1)
+    else
+        push!(tuner_test_state.acc_C, tuner_test_state.acc_C[end])
+    end
+    push!(tuner_test_state.delta_arr, algorithms[2].step_amplitude)
+end
+
+converged_check = check_tuning_convergence!(
+    tuner_test_state,
+    AcceptanceRatioConvergence(target_acc = 0.3, standard_deviation = 0.06, abs_dif_mean = 0.01)
+)
+@test converged_check == true
+
+Random.seed!(20)
+density_test, trafo = transform_and_unshape(algorithms[3].trafo, density_notrafo)
+tuner_test_state = ECMCTunerState(density_test, algorithms[2])[1]
+tuner_test_state.n_steps = 1e4
+
+tuner_test_state.acc_C = [0]
+for i in 1:tuner_test_state.n_steps-1
+    u = rand(Uniform(0.0, 1.0))
+    if u <= algorithms[2].tuning.target_acc+0.1
+        push!(tuner_test_state.acc_C, tuner_test_state.acc_C[end]+1)
+    else
+        push!(tuner_test_state.acc_C, tuner_test_state.acc_C[end])
+    end
+    push!(tuner_test_state.delta_arr, algorithms[2].step_amplitude)
+end
+
+converged_check = check_tuning_convergence!(
+    tuner_test_state,
+    AcceptanceRatioConvergence(target_acc = 0.3, standard_deviation = 0.06, abs_dif_mean = 0.01)
+)
+@test converged_check == false
+
+
+
+#-----------tuning run tests------------
 resulting_deltas = Array{Float64}(undef, length(tuning_algorithms))
 for i in eachindex(tuning_algorithms)
-
+    Random.seed!(4321)
     sample = bat_sample(posterior, algorithms[i])
     tuning_state = sample.ecmc_tuning_state[1]
     resulting_deltas[i] = tuning_state.tuned_delta
-
 end
 
-
+resulting_deltas
+@test isapprox(resulting_deltas[1], 1., atol=1e-15)
+@test isapprox(resulting_deltas[2], 0.21035861525726335, atol=1e-15)
+@test isapprox(resulting_deltas[3], 0.2061845879928079, atol=1e-15)
 
 
 
